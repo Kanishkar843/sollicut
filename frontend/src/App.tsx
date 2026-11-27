@@ -5,8 +5,8 @@ import VoiceButton from './VoiceButton'
 
 export function validatePhotos(files:File[],count:number):string|null{
  if(files.length+count>5)return 'Choose up to 5 product photos in total.'
- if(files.some(f=>!['image/jpeg','image/png','image/webp'].includes(f.type)))return 'Use JPEG, PNG or WebP product photos.'
- if(files.some(f=>f.size>15*1024*1024))return 'Each photo must be smaller than 15 MB.'
+ if(files.some(f=>!['image/jpeg','image/png','image/webp','video/mp4','video/quicktime','video/webm'].includes(f.type)))return 'Use JPEG, PNG or WebP product photos.'
+ if(files.some(f=>f.size>(f.type.startsWith('video/')?100:15)*1024*1024))return 'Each photo must be smaller than 15 MB.'
  return null
 }
 
@@ -16,7 +16,7 @@ export default function App(){
  const [parsed,setParsed]=useState<Parsed|null>(null),[language,setLanguage]=useState(''),[resetting,setResetting]=useState(false)
  const [jobId,setJobId]=useState<string|null>(null)
  const initial=useRef<Promise<Project>|null>(null),upload=useRef<HTMLInputElement>(null),music=useRef<HTMLInputElement>(null)
- const photos=project?.assets.filter(a=>a.media_type==='image')??[]
+ const photos=project?.assets.filter(a=>a.media_type!=='audio')??[]
  useEffect(()=>{
   let live=true
   const saved=localStorage.getItem('sollicut-project')
@@ -68,14 +68,14 @@ export default function App(){
    <div className="workspace">
     <section className="editor" aria-label="Reel editor">
      <div className="section-heading"><div><h2>Your media</h2><p>Add 3–5 photos. We’ll bring them to life.</p></div><span className="count">{photos.length}/5 photos</span></div>
-     <input ref={upload} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="Upload product photos" onChange={e=>{void filesSelected(Array.from(e.target.files??[]));e.target.value=''}}/>
+     <input ref={upload} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm" multiple aria-label="Upload product photos" onChange={e=>{void filesSelected(Array.from(e.target.files??[]));e.target.value=''}}/>
      <div className={`photo-area ${photos.length?'filled':''}`} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();void filesSelected(Array.from(e.dataTransfer.files))}}>
-      {photos.length?<div className="photo-grid">{photos.map((asset,i)=><div className="photo" key={asset.id}><img src={`/api/projects/${project!.id}/assets/${asset.id}`} alt={asset.filename}/><span>{i+1}</span><button aria-label={`Remove ${asset.filename}`} disabled={busy} onClick={()=>void remove(asset.id)}><X size={14}/></button></div>)}{photos.length<5&&<button className="add-photo" disabled={busy} onClick={()=>upload.current?.click()} aria-label="Add more photos"><ImagePlus size={24}/></button>}</div>:<button className="dropzone" disabled={busy||!project} onClick={()=>upload.current?.click()}><div className="upload-symbol"><ImagePlus size={28}/></div><strong>Drop your product photos here</strong><span>or click to choose from your device</span><small>JPG, PNG or WebP · up to 15 MB each</small></button>}
+      {photos.length?<div className="photo-grid">{photos.map((asset,i)=><div className="photo" key={asset.id}>{asset.media_type==='video'?<video muted preload="metadata" src={`/api/projects/${project!.id}/assets/${asset.id}`}/>:<img src={`/api/projects/${project!.id}/assets/${asset.id}`} alt={asset.filename}/>}<span>{i+1}</span><button aria-label={`Remove ${asset.filename}`} disabled={busy} onClick={()=>void remove(asset.id)}><X size={14}/></button></div>)}{photos.length<5&&<button className="add-photo" disabled={busy} onClick={()=>upload.current?.click()} aria-label="Add more photos"><ImagePlus size={24}/></button>}</div>:<button className="dropzone" disabled={busy||!project} onClick={()=>upload.current?.click()}><div className="upload-symbol"><ImagePlus size={28}/></div><strong>Drop your product photos here</strong><span>or click to choose from your device</span><small>JPG, PNG or WebP · up to 15 MB each</small></button>}
      </div>
      <div className="music-row"><Music2 size={16}/><span>{project?.assets.find(a=>a.media_type==='audio')?.filename??'Original demo music included'}</span>{project?.assets.some(a=>a.media_type==='audio')?<button className="text-button" disabled={busy} onClick={()=>void remove(project.assets.find(a=>a.media_type==='audio')!.id)}>Remove</button>:<button className="text-button" disabled={busy||!project} onClick={()=>music.current?.click()}>Use my music</button>}<input className="sr-only" ref={music} type="file" accept="audio/mpeg,audio/wav,audio/mp4,audio/ogg" aria-label="Upload background music" onChange={e=>{void filesSelected(Array.from(e.target.files??[]),true);e.target.value=''}}/></div>
      <div className="voice-section"><div className="section-heading"><div><span className="eyebrow">VOICE DIRECTOR</span><h2>{project?.current_output?'What would you change?':'What should we create?'}</h2></div><div className="select-wrap"><select aria-label="Speech language" value={language} disabled={busy} onChange={e=>setLanguage(e.target.value)}><option value="">Auto language</option><option value="ta">Tamil / Tanglish</option><option value="en">English</option></select><ChevronDown size={14}/></div></div>
-      <VoiceButton disabled={busy||photos.length<3||caps?.speech.status!=='ready'} onAudio={(b,e)=>void handleAudio(b,e)} onError={setError}/>
-      <div className="status" role="status">{busy?<LoaderCircle className="spin" size={15}/>:<span className="status-dot"/>}{stage}{photos.length<3&&!busy?' · Add at least 3 photos to begin':''}</div>
+      <VoiceButton disabled={busy||photos.length<1||caps?.speech.status!=='ready'} onAudio={(b,e)=>void handleAudio(b,e)} onError={setError}/>
+      <div className="status" role="status">{busy?<LoaderCircle className="spin" size={15}/>:<span className="status-dot"/>}{stage}{photos.length<1&&!busy?' · Add at least 3 photos to begin':''}</div>
       {caps&&caps.speech.status!=='ready'&&<div className="notice">{caps.speech.status==='loading'?'Loading the local speech model…':caps.speech.error}</div>}
       {caps&&!caps.renderer.available&&<div className="notice">The media renderer is unavailable. Check the server setup before creating a reel.</div>}
       <div className="try-saying"><span>TRY SAYING</span><p>{project?.current_output?'“Offer ah 25 percent nu maathu. Background music konjam kammi pannu.”':'“Indha photos use panni 15 seconds reel create pannu. Smooth zoom, music, last la 20 percent offer podu.”'}</p><small>{project?.current_output?'Change the offer to 25 percent and lower the music.':'Use these photos for a 15-second reel, with zoom, music and an offer.'}</small></div>

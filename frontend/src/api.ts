@@ -1,4 +1,4 @@
-export type Asset = {id:string;filename:string;media_type:'image'|'audio'}
+export type Asset = {id:string;filename:string;media_type:'image'|'video'|'audio'}
 export type Operation = {id:string;type:string;parameters:Record<string,unknown>}
 export type Project = {id:string;assets:Asset[];current_output:string|null;current_render_revision:number;undo_stack:unknown[];settings:{duration_seconds:number}}
 export type Parsed = {original_transcript:string;operations:Operation[];requires_clarification:boolean;clarification_question:string|null;warnings:string[]}

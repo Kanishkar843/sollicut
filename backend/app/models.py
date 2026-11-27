@@ -16,7 +16,7 @@ class StrictModel(BaseModel):
 class Asset(StrictModel):
     id: str = Field(default_factory=uid)
     filename: str
-    media_type: Literal["image", "audio"]
+    media_type: Literal["image", "video", "audio"]
     path: str
     width: int | None = None
     height: int | None = None

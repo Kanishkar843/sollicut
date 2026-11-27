@@ -72,9 +72,9 @@ def overlay(text: str, path: Path, position: str = "end_card") -> None:
 
 
 def render(project: ProjectState, revision: int, stage: Callable[[str], None] = lambda _: None) -> Path:
-    images = [a for a in project.assets if a.media_type == "image"]
-    if not 3 <= len(images) <= 5:
-        raise ValueError("A reel needs 3 to 5 photos")
+    images = [a for a in project.assets if a.media_type in {"image", "video"}]
+    if not 1 <= len(images) <= 5:
+        raise ValueError("A reel needs 1 to 5 photos or clips")
     directory = project_dir(project.id)
     scratch = directory / "renders" / f"work-{revision}"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -85,6 +85,12 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
         for index, asset in enumerate(images):
             stage(f"Animating photo {index + 1} of {len(images)}")
             frames = total_frames // len(images) + (index < total_frames % len(images))
+            if asset.media_type == "video":
+                clip = scratch / f"clip-{index}.mp4"
+                vf = f"scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=0x131b26,setsar=1,fps=30,eq=brightness={settings.brightness},format=yuv420p"
+                run(["ffmpeg", "-v", "error", "-y", "-stream_loop", "-1", "-i", str(directory / asset.path), "-vf", vf, "-frames:v", str(frames), "-an", "-c:v", "libx264", "-preset", "veryfast", "-threads", "2", str(clip)])
+                clips.append(clip)
+                continue
             normalized = scratch / f"photo-{index}.png"
             with Image.open(directory / asset.path) as source:
                 fitted = ImageOps.contain(ImageOps.exif_transpose(source).convert("RGB"), (1440, 2560))

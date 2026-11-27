@@ -137,20 +137,21 @@ async def upload_asset(project_id: str, file: UploadFile = File(...)):
         suffix = Path(file.filename or "").suffix.lower()
         image_types = {".jpg": "JPEG", ".jpeg": "JPEG", ".png": "PNG", ".webp": "WEBP"}
         is_image = suffix in image_types
-        if not is_image and suffix not in {".wav", ".mp3", ".m4a", ".ogg"}:
+        is_video = suffix in {".mp4", ".mov", ".webm"}
+        if not is_image and not is_video and suffix not in {".wav", ".mp3", ".m4a", ".ogg"}:
             raise HTTPException(415, "Use JPEG, PNG, WebP photos or WAV, MP3, M4A, OGG music")
-        if is_image and sum(a.media_type == "image" for a in project.assets) >= 5:
+        if (is_image or is_video) and sum(a.media_type in {"image", "video"} for a in project.assets) >= 5:
             raise HTTPException(422, "A project supports at most 5 photos")
-        if not is_image and any(a.media_type == "audio" for a in project.assets):
+        if not is_image and not is_video and any(a.media_type == "audio" for a in project.assets):
             raise HTTPException(422, "Remove the current music file before uploading another")
-        expected_prefix = "image/" if is_image else "audio/"
+        expected_prefix = "image/" if is_image else "video/" if is_video else "audio/"
         if not (file.content_type or "").startswith(expected_prefix):
             raise HTTPException(415, "The uploaded media type does not match the file extension")
-        quota(project_id, 20 * 1024 * 1024)
+        quota(project_id, (100 if is_video else 20) * 1024 * 1024)
         identifier = str(uuid4())
         path = storage.project_dir(project_id) / "assets" / (identifier + suffix)
-        await receive(file, path, (15 if is_image else 20) * 1024 * 1024)
-        asset = Asset(id=identifier, filename=(file.filename or "media")[:150], media_type="image" if is_image else "audio", path=f"assets/{path.name}")
+        await receive(file, path, (15 if is_image else 100 if is_video else 20) * 1024 * 1024)
+        asset = Asset(id=identifier, filename=(file.filename or "media")[:150], media_type="image" if is_image else "video" if is_video else "audio", path=f"assets/{path.name}")
         if is_image:
             try:
                 with Image.open(path) as image:
@@ -169,6 +170,16 @@ async def upload_asset(project_id: str, file: UploadFile = File(...)):
                 asset.path = f"assets/{clean.name}"
             except (ValueError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning, UnidentifiedImageError):
                 raise HTTPException(422, "Could not decode a valid photo (32 pixels minimum, 50 megapixels maximum)") from None
+        elif is_video:
+            try:
+                info = await asyncio.to_thread(media.probe, path)
+                video = next(s for s in info["streams"] if s["codec_type"] == "video")
+                asset.width, asset.height = video["width"], video["height"]
+                asset.duration_seconds = float(info["format"]["duration"])
+                if not 0 < asset.duration_seconds <= 120 or asset.width * asset.height > 8_500_000:
+                    raise ValueError("Video too large")
+            except (RuntimeError, KeyError, ValueError, StopIteration):
+                raise HTTPException(422, "Use a valid video up to 120 seconds and 4K resolution") from None
         else:
             try:
                 info = await asyncio.to_thread(media.probe, path)
@@ -305,7 +316,7 @@ async def apply(project_id: str, body: ApplyRequest):
     project = claim(project_id)
     result = None
     try:
-        parsed = parse(body.transcript, sum(a.media_type == "image" for a in project.assets), bool(project.current_output))
+        parsed = parse(body.transcript, max(3, sum(a.media_type in {"image", "video"} for a in project.assets)) if any(a.media_type in {"image", "video"} for a in project.assets) else 0, bool(project.current_output))
         result = dispatch(project, parsed)
         return result
     finally:
@@ -352,7 +363,7 @@ async def voice(project_id: str, file: UploadFile = File(...), language_hint: st
             raise HTTPException(422, str(exc)) from None
         except (RuntimeError, OSError):
             raise HTTPException(503, speech.error or "Transcription failed. Check the recording and try again.") from None
-        parsed = parse(transcript.text, sum(a.media_type == "image" for a in project.assets), bool(project.current_output))
+        parsed = parse(transcript.text, max(3, sum(a.media_type in {"image", "video"} for a in project.assets)) if any(a.media_type in {"image", "video"} for a in project.assets) else 0, bool(project.current_output))
         result = dispatch(project, parsed)
         return {**result, "transcript": transcript.text, "language": transcript.language, "asr_seconds": transcript.elapsed_seconds}
     finally:
