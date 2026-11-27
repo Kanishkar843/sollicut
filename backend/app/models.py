@@ -75,6 +75,7 @@ class ParsedCommand(StrictModel):
     clarification_question: str | None = None
     warnings: list[str] = Field(default_factory=list)
     matched_rules: list[str] = Field(default_factory=list)
+    matched_sources: dict[str, str] = Field(default_factory=dict)
 
 
 class Snapshot(StrictModel):
