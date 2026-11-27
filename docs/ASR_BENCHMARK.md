@@ -1,6 +1,6 @@
-﻿# Real voice benchmark
+﻿# Real voice benchmark (Dual-ASR: IndicConformer-TA + Whisper small INT8)
 
-Record each command using the actual browser microphone. No participant results have been entered. English public JFK fixture returned a real transcript in 1.261 seconds; this does not establish command or Tanglish accuracy.
+Record each command using the actual browser microphone (`Tanglish`, `தமிழ்`, or `English` mode over `WS /ws/voice/{project_id}`). Automated backend suite (`99 passed`) and frontend suite (`13 passed`) verified synthetic PCM WebSocket streaming, dual-pass fusion, and model loading locally; live human microphone acceptance remains `NEEDS HUMAN VERIFICATION`.
 
 | Command | Expected intent | Observed transcript | Intent correct? | Critical fields? | Latency | Notes |
 |---|---|---|---|---|---|---|

@@ -20,7 +20,7 @@ Then say: “Offer ah 25 percent nu maathu. Background music konjam kammi pannu.
 ## Implemented
 
 - **Landing & Dark Studio UX**: Frosted Folder Lookbook landing page (`/`), electric-lime dark 3-column workstation (`#studio`: `Your media` bin, centered 9:16 cinema `<video>` stage with scrub/fullscreen transport, `Voice Director` + `Text`/`Audio`/`Look`/`Trim`/`AI Ad` inspector) and above-the-fold 3-track timeline with clip thumbnails and quick mute/add controls.
-- **Voice & Local ASR**: Real browser `MediaRecorder` capture, local `faster-whisper` (`base`, CPU `int8`), deterministic Tamil/Tanglish/English multi-operation parser (no `max(3, ...)` count workaround; supports 1–5 media items, clip trim, clip reorder, clip audio mixing, fit mode, zoom, brightness, music, and overlays).
+- **Voice & Dual-ASR Local Speech**: Browser `AudioWorklet` 16 kHz mono Int16 PCM WebSocket streaming (`WS /ws/voice/{project_id}?mode=tanglish|ta|en`) with automatic `MediaRecorder` + WAV/HTTP fallback; dual-engine CPU router combining **AI4Bharat IndicConformer Tamil INT8 ONNX** (`sherpa-onnx` v2.0.3) and **OpenAI Whisper `small`** (`faster-whisper` v1.2.1 CPU `int8`), plus cross-script Tamil loanword normalization, `rapidfuzz` Tanglish phonetic recovery, and dual-pass deterministic fusion (1–5 media items, clip trim, clip reorder, clip audio mixing, fit mode, zoom, brightness, music, and overlays).
 - **Rendering & Undo**: Validated photo (JPEG/PNG/WebP), video (MP4/MOV/WebM), and music (WAV/MP3/M4A/OGG) uploads; FFmpeg 720×1280 H.264/AAC rendering; Pillow + `libraqm` Tamil shaping (`Noto Sans Tamil`); non-destructive revision snapshots, undo (including clip order/trim), download, and project deletion.
 - **Optional Gemini Cloud Ad Panel**: Prepared against `gemini-omni-1.2-flash` (`POST /v1beta/interactions`) using bounded background jobs, `9:16` / `3–15s` schema, and prompt review before sending. Clearly displays **Key not set** without `GEMINI_API_KEY`; core editing remains keyless.
 
@@ -40,7 +40,7 @@ This development host required its trusted corporate CA bundle for initial packa
 
 ## Configuration and privacy
 
-- **Default ASR**: `base`, CPU, `int8`. Set `SOLLICUT_ASR_MODEL=small` before rebuilding to evaluate `small`; no accuracy improvement is claimed.
+- **Default ASR**: Dual-ASR CPU router (`SOLLICUT_ASR_MODEL=small`, `compute_type=int8`, `SOLLICUT_INDIC_ASR_ENABLED=true`, `SOLLICUT_ASR_THREADS=4`) with 3-way studio mode selector (`Tanglish` dual-pass, `தமிழ்` IndicConformer-TA, `English` Whisper `small`). Zero API keys or Hugging Face tokens required.
 - **Optional Gemini API**: Set `GEMINI_API_KEY` in an untracked root `.env` to enable the `AI Ad` tab (`SOLLICUT_VIDEO_MODEL` defaults to `gemini-omni-1.2-flash`). Never commit `.env` or put keys in frontend code.
 - **Storage & Privacy**: Docker storage uses the `sollicut_data` named volume at `/data`. Recordings are deleted immediately after transcription; uploaded media, edit transcripts, and renders stay on the server until **New reel** deletes the project. See [privacy and limits](docs/PRIVACY.md). Remote hosting requires HTTPS for microphone capture and separate authentication hardening.
 
