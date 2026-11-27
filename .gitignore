@@ -9,3 +9,4 @@ models/
 test-artifacts/
 *.log
 *.egg-info/
+*.tsbuildinfo
