@@ -12,6 +12,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from . import assets_catalog, effects, generation, media, storage
 from .models import (
+    ASPECT_DIMENSIONS,
     ApplyRequest,
     ApplyTemplateRequest,
     Asset,
@@ -342,6 +343,16 @@ def apply_operations(project: ProjectState, operations: list[EditOperation]) -> 
         p = op.parameters
         if op.type in {"create_reel", "set_duration"}:
             values["duration_seconds"] = p["duration_seconds"]
+            if "aspect_ratio" in p and p["aspect_ratio"] in ASPECT_DIMENSIONS:
+                w, h = ASPECT_DIMENSIONS[p["aspect_ratio"]]
+                values["aspect_ratio"] = p["aspect_ratio"]
+                values["width"], values["height"] = w, h
+        elif op.type == "set_aspect_ratio":
+            ratio = p.get("aspect_ratio", "9:16")
+            if ratio in ASPECT_DIMENSIONS:
+                w, h = ASPECT_DIMENSIONS[ratio]
+                values["aspect_ratio"] = ratio
+                values["width"], values["height"] = w, h
         elif op.type == "set_zoom_style":
             values["zoom_style"] = p["style"]
         elif op.type == "set_music":
@@ -702,6 +713,8 @@ async def visual_edit(project_id: str, body: VisualEditRequest):
             operations.append(EditOperation(type="trim_clip", parameters={"asset_id": body.trim_asset_id, "trim_start": body.trim_start, "trim_end": body.trim_end}, source_transcript="[editor trim]"))
         if body.duration_seconds is not None:
             operations.append(EditOperation(type="set_duration", parameters={"duration_seconds": body.duration_seconds}, source_transcript="[editor duration]"))
+        if body.aspect_ratio is not None:
+            operations.append(EditOperation(type="set_aspect_ratio", parameters={"aspect_ratio": body.aspect_ratio}, source_transcript="[editor aspect ratio]"))
         if body.zoom_style is not None:
             operations.append(EditOperation(type="set_zoom_style", parameters={"style": body.zoom_style}, source_transcript="[editor zoom]"))
         if body.music_enabled is not None:
@@ -899,19 +912,21 @@ async def attach_catalog_audio(project_id: str, body: AttachAudioRequest):
         pack = next((a for a in assets_catalog.AUDIO_PACKS if a["id"] == body.audio_id), None)
         if not pack:
             raise HTTPException(404, "Audio pack not found")
-        src = storage.ROOT / "assets/demo" / pack["filename"]
+        folder = pack.get("folder", "demo")
+        src = storage.ROOT / "assets" / folder / pack["filename"]
         if not src.is_file():
-            raise HTTPException(404, "Audio pack file missing; run generate_demo_assets.py")
+            raise HTTPException(404, "Audio pack file missing")
         previous = _snapshot(project)
         pdir = storage.project_dir(project_id)
         for existing in [a for a in project.assets if a.media_type == "audio"]:
             project.assets.remove(existing)
         asset_id = str(uuid4())
-        dest = pdir / "assets" / f"{asset_id}.wav"
+        ext = Path(pack["filename"]).suffix or ".wav"
+        dest = pdir / "assets" / f"{asset_id}{ext}"
         shutil.copy2(src, dest)
         asset = Asset(
             id=asset_id,
-            filename=pack["filename"],
+            filename=pack["name"],
             media_type="audio",
             path=f"assets/{dest.name}",
             duration_seconds=float(pack["duration_seconds"]),
@@ -931,6 +946,18 @@ async def attach_catalog_audio(project_id: str, body: AttachAudioRequest):
     finally:
         if not result or "job_id" not in result:
             busy.discard(project_id)
+
+
+@app.get("/api/assets-catalog/audio/{audio_id}")
+def preview_catalog_audio(audio_id: str):
+    pack = next((a for a in assets_catalog.AUDIO_PACKS if a["id"] == audio_id), None)
+    if not pack:
+        raise HTTPException(404, "Audio pack not found")
+    src = storage.ROOT / "assets" / pack.get("folder", "demo") / pack["filename"]
+    if not src.is_file():
+        raise HTTPException(404, "Audio pack file missing")
+    media_type = "audio/mpeg" if src.suffix.lower() == ".mp3" else "audio/wav"
+    return FileResponse(src, media_type=media_type)
 
 
 @app.post("/api/projects/{project_id}/tts")

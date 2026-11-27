@@ -86,14 +86,24 @@ def capabilities() -> dict:
         return {"available": False, "error": str(exc), "raqm": features.check_feature("raqm")}
 
 
-def overlay(text: str, path: Path, position: str = "end_card", accent: str = "lime", is_caption: bool = False) -> None:
+def overlay(
+    text: str,
+    path: Path,
+    position: str = "end_card",
+    accent: str = "lime",
+    is_caption: bool = False,
+    width: int = 720,
+    height: int = 1280,
+) -> None:
     layout = ImageFont.Layout.RAQM if features.check_feature("raqm") else ImageFont.Layout.BASIC
     path.parent.mkdir(parents=True, exist_ok=True)
-    canvas = Image.new("RGBA", (720, 1280))
+    canvas = Image.new("RGBA", (width, height))
     draw = ImageDraw.Draw(canvas)
-    start_size = 38 if is_caption else 56
-    min_size = 20 if is_caption else 24
-    max_width = 610 if is_caption else 584
+    margin = max(28, int(width * 0.05))
+    box_left, box_right = margin, width - margin
+    max_width = max(220, (box_right - box_left) - 64)
+    start_size = min(56, max(34, int(min(width, height) * 0.075))) if not is_caption else min(38, max(24, int(min(width, height) * 0.05)))
+    min_size = 18 if is_caption else 20
     for size in range(start_size, min_size - 1, -2):
         font = ImageFont.truetype(str(FONT), size, layout_engine=layout)
         lines, line = [], ""
@@ -110,29 +120,30 @@ def overlay(text: str, path: Path, position: str = "end_card", accent: str = "li
     else:
         raise ValueError("Text is too wide; use shorter words")
 
+    cx = width // 2
     if is_caption:
-        height = len(lines) * (size + 14) + 32
-        top = 1040 - height
-        draw.rounded_rectangle((48, top, 672, top + height), radius=18, fill=(10, 13, 11, 224))
+        box_h = len(lines) * (size + 14) + 32
+        top = int(height * 0.84) - box_h
+        draw.rounded_rectangle((box_left, top, box_right, top + box_h), radius=18, fill=(10, 13, 11, 224))
         for i, line in enumerate(lines):
-            draw.text((360, top + 16 + i * (size + 14)), line, font=font, anchor="mt", fill="#f5f7f4")
+            draw.text((cx, top + 16 + i * (size + 14)), line, font=font, anchor="mt", fill="#f5f7f4")
     else:
-        height = len(lines) * (size + 22) + 64
+        box_h = len(lines) * (size + 22) + 64
         if position == "center":
-            top = (1280 - height) // 2
+            top = (height - box_h) // 2
         elif position == "top":
-            top = 120
+            top = max(36, int(height * 0.09))
         else:
-            top = 1140 - height
+            top = int(height * 0.89) - box_h
         bar_color = ACCENTS.get(accent, ACCENTS["lime"])
-        draw.rounded_rectangle((36, top, 684, top + height), radius=28, fill=(14, 17, 15, 238))
-        draw.rounded_rectangle((64, top + 24, 132, top + 30), radius=3, fill=bar_color)
+        draw.rounded_rectangle((box_left, top, box_right, top + box_h), radius=28, fill=(14, 17, 15, 238))
+        draw.rounded_rectangle((box_left + 28, top + 24, box_left + 96, top + 30), radius=3, fill=bar_color)
         for i, line in enumerate(lines):
-            draw.text((360, top + 48 + i * (size + 22)), line, font=font, anchor="mt", fill="white")
+            draw.text((cx, top + 48 + i * (size + 22)), line, font=font, anchor="mt", fill="white")
     canvas.save(path)
 
 
-def _sticker_overlay(badge: str, path: Path) -> None:
+def _sticker_overlay(badge: str, path: Path, width: int = 720, height: int = 1280) -> None:
     labels = {
         "sale": ("SALE", (215, 239, 65), (17, 21, 9)),
         "new": ("NEW DROP", (63, 208, 227), (10, 18, 20)),
@@ -142,11 +153,13 @@ def _sticker_overlay(badge: str, path: Path) -> None:
     label, bg, fg = labels.get(badge, ("SALE", (215, 239, 65), (17, 21, 9)))
     layout = ImageFont.Layout.RAQM if features.check_feature("raqm") else ImageFont.Layout.BASIC
     path.parent.mkdir(parents=True, exist_ok=True)
-    canvas = Image.new("RGBA", (720, 1280))
+    canvas = Image.new("RGBA", (width, height))
     draw = ImageDraw.Draw(canvas)
     font = ImageFont.truetype(str(FONT), 24, layout_engine=layout)
-    draw.rounded_rectangle((496, 44, 684, 98), radius=22, fill=(*bg, 245))
-    draw.text((590, 71), label, font=font, anchor="mm", fill=fg)
+    right = width - 36
+    left = max(36, right - 188)
+    draw.rounded_rectangle((left, 44, right, 98), radius=22, fill=(*bg, 245))
+    draw.text(((left + right) // 2, 71), label, font=font, anchor="mm", fill=fg)
     canvas.save(path)
 
 
@@ -237,6 +250,8 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
     scratch = directory / "renders" / f"work-{revision}"
     scratch.mkdir(parents=True, exist_ok=True)
     settings = project.settings
+    out_w, out_h = int(settings.width), int(settings.height)
+    canvas_w, canvas_h = out_w * 2, out_h * 2
 
     n_clips = len(media_items)
     trans_style = settings.transition_style if n_clips > 1 else "none"
@@ -291,9 +306,9 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
                     source_path = cutout_vid
 
                 scale_filter = (
-                    "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280"
+                    f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,crop={out_w}:{out_h}"
                     if settings.fit_mode == "cover"
-                    else "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=0x0e110f"
+                    else f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:color=0x0e110f"
                 )
                 vf_chain: list[str] = []
                 if asset.stabilize:
@@ -307,7 +322,7 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
                 clip_args = ["ffmpeg", "-v", "error", "-y", "-stream_loop", "-1", "-i", str(source_path)]
                 use_chromakey = asset.cutout_mode == "chroma_key"
                 if use_chromakey:
-                    clip_args += ["-f", "lavfi", "-t", f"{slot_seconds:.3f}", "-i", "color=c=0x0e110f:s=720x1280:r=30"]
+                    clip_args += ["-f", "lavfi", "-t", f"{slot_seconds:.3f}", "-i", f"color=c=0x0e110f:s={out_w}x{out_h}:r=30"]
 
                 clip_vol = round(float(settings.clip_audio_volume) * float(asset.volume or 1.0), 3)
                 af_parts = [f"volume={clip_vol}"] + _atempo_chain(eff_speed) + ["aresample=44100", "pan=mono|c0=c0"]
@@ -369,26 +384,26 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
             with Image.open(source_img_path) as source:
                 oriented = ImageOps.exif_transpose(source).convert("RGB")
                 if settings.fit_mode == "cover":
-                    canvas = ImageOps.fit(oriented, (1440, 2560))
+                    canvas = ImageOps.fit(oriented, (canvas_w, canvas_h))
                 else:
-                    fitted = ImageOps.contain(oriented, (1440, 2560))
-                    canvas = Image.new("RGB", (1440, 2560), "#0e110f")
-                    canvas.paste(fitted, ((1440 - fitted.width) // 2, (2560 - fitted.height) // 2))
+                    fitted = ImageOps.contain(oriented, (canvas_w, canvas_h))
+                    canvas = Image.new("RGB", (canvas_w, canvas_h), "#0e110f")
+                    canvas.paste(fitted, ((canvas_w - fitted.width) // 2, (canvas_h - fitted.height) // 2))
                 canvas.save(normalized)
 
             eff_keyframes = asset.keyframes if asset.keyframes else settings.keyframes
             extras = _clip_vf_extras(asset, settings)
 
             if eff_keyframes:
-                base_bgr = cv2.resize(effects.read_bgr(normalized), (720, 1280), interpolation=cv2.INTER_AREA)
+                base_bgr = cv2.resize(effects.read_bgr(normalized), (out_w, out_h), interpolation=cv2.INTER_AREA)
                 raw_buf = bytearray()
                 for f_idx in range(frames):
                     props = kf.interpolate_keyframes(eff_keyframes, f_idx / 30.0)
-                    raw_buf.extend(kf.apply_keyframes_to_image(base_bgr, props, 720, 1280).tobytes())
+                    raw_buf.extend(kf.apply_keyframes_to_image(base_bgr, props, out_w, out_h).tobytes())
                 vf_list = extras + ["setsar=1", "settb=1/30", "format=yuv420p"]
                 photo_args = [
                     "ffmpeg", "-v", "error", "-y",
-                    "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", "720x1280", "-r", "30", "-i", "-",
+                    "-f", "rawvideo", "-pix_fmt", "bgr24", "-s", f"{out_w}x{out_h}", "-r", "30", "-i", "-",
                 ]
                 if need_audio_track:
                     photo_args += [
@@ -407,7 +422,7 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
             else:
                 zoom_factor = 0.08 * min(2.0, eff_speed)
                 zoom = f"1+{zoom_factor:.3f}*on/{max(1, frames - 1)}" if settings.zoom_style == "smooth" else "1"
-                vf_list = [f"zoompan=z='{zoom}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={frames}:s=720x1280:fps=30"]
+                vf_list = [f"zoompan=z='{zoom}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={frames}:s={out_w}x{out_h}:fps=30"]
                 vf_list.extend(extras)
                 vf_list.extend(["setsar=1", "settb=1/30", "format=yuv420p"])
                 vf = ",".join(vf_list)
@@ -503,7 +518,7 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
             prev_v = "[0:v]"
             for idx, layer in enumerate(layers):
                 png = directory / "overlays" / f"{revision}-txt-{idx}.png"
-                overlay(layer.text, png, layer.position, layer.color, is_caption=layer.is_caption)
+                overlay(layer.text, png, layer.position, layer.color, is_caption=layer.is_caption, width=out_w, height=out_h)
                 args += ["-i", str(png)]
                 txt_idx = next_input
                 next_input += 1
@@ -539,7 +554,7 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
 
         if settings.sticker_badge != "none":
             badge_png = directory / "overlays" / f"{revision}-badge.png"
-            _sticker_overlay(settings.sticker_badge, badge_png)
+            _sticker_overlay(settings.sticker_badge, badge_png, width=out_w, height=out_h)
             args += ["-i", str(badge_png)]
             b_idx = next_input
             next_input += 1

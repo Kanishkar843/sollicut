@@ -355,4 +355,120 @@ test('left rail Media button opens the file picker when media slots are availabl
   expect(clickSpy).toHaveBeenCalledTimes(1)
 })
 
+test('supports multiple aspect ratios, inbuilt soothing music, and Your music upload trigger', async () => {
+  const fetchSpy = vi.fn(async (input: string) => {
+    const url = String(input)
+    if (url.includes('capabilities')) {
+      return {
+        ok: true,
+        json: async () => ({
+          generation: { configured: false, status: 'key_not_set', model: 'gemini-omni-1.2-flash' },
+          renderer: { available: true },
+          speech: { status: 'ready', error: null },
+        }),
+      }
+    }
+    if (url.includes('assets-catalog')) {
+      return {
+        ok: true,
+        json: async () => ({
+          aspect_ratios: [
+            { id: '9:16', label: '9:16 Vertical', width: 720, height: 1280, desc: 'Reels / Shorts' },
+            { id: '16:9', label: '16:9 Landscape', width: 1280, height: 720, desc: 'YouTube / Wide' },
+          ],
+          templates: [],
+          audio_packs: [
+            { id: 'soft_calm', name: 'Soft Calm (Soothing)', category: 'Soothing', filename: 'soft-calm.mp3', folder: 'music', duration_seconds: 30, license: 'CC0 1.0' },
+          ],
+          filters: [],
+          transitions: [],
+          stickers: [],
+          stock_video: { status: 'deferred', note: 'Deferred', items: [] },
+        }),
+      }
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        project: {
+          id: 'project',
+          assets: [],
+          current_output: null,
+          current_render_revision: 1,
+          undo_stack: [],
+          settings: {
+            duration_seconds: 15,
+            aspect_ratio: '16:9',
+            width: 1280,
+            height: 720,
+            zoom_style: 'smooth',
+            music_enabled: true,
+            music_volume: 0.2,
+            keep_clip_audio: false,
+            clip_audio_volume: 0.7,
+            fit_mode: 'contain',
+            overlay_text: null,
+            overlay_position: 'end_card',
+            overlay_color: 'lime',
+            brightness: 0,
+          },
+        },
+        id: 'project',
+        assets: [],
+        current_output: null,
+        current_render_revision: 1,
+        undo_stack: [],
+        settings: {
+          duration_seconds: 15,
+          aspect_ratio: '9:16',
+          width: 720,
+          height: 1280,
+          zoom_style: 'smooth',
+          music_enabled: true,
+          music_volume: 0.2,
+          keep_clip_audio: false,
+          clip_audio_volume: 0.7,
+          fit_mode: 'contain',
+          overlay_text: null,
+          overlay_position: 'end_card',
+          overlay_color: 'lime',
+          brightness: 0,
+        },
+      }),
+    }
+  })
+  vi.stubGlobal('fetch', fetchSpy)
+  render(<App />)
+
+  await waitFor(() => expect(screen.getByLabelText('Aspect ratio')).not.toBeDisabled())
+  const ratioSelect = screen.getByLabelText('Aspect ratio') as HTMLSelectElement
+  fireEvent.change(ratioSelect, { target: { value: '16:9' } })
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/projects/project/edit',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ aspect_ratio: '16:9', render: false }),
+      }),
+    ),
+  )
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Audio' }))
+  const audioInput = screen.getByLabelText('Upload background music') as HTMLInputElement
+  const audioClickSpy = vi.spyOn(audioInput, 'click')
+  fireEvent.click(screen.getAllByRole('button', { name: 'Your music' })[0])
+  expect(audioClickSpy).toHaveBeenCalledTimes(1)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Use track' }))
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/projects/project/attach-catalog-audio',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ audio_id: 'soft_calm', render: false }),
+      }),
+    ),
+  )
+})
+
 

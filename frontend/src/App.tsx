@@ -40,6 +40,7 @@ import VoiceButton from './VoiceButton'
 import {
   api,
   operationLabel,
+  type AspectRatio,
   type AssetsCatalog,
   type Capabilities,
   type Command,
@@ -71,6 +72,13 @@ export function validateMedia(files: File[], count: number): string | null {
 export const validatePhotos = validateMedia
 
 type InspectorTab = 'text' | 'audio' | 'look' | 'trim' | 'fx' | 'assets' | 'ai'
+
+const ASPECT_RATIO_OPTIONS: { id: AspectRatio; label: string; width: number; height: number; desc: string }[] = [
+  { id: '9:16', label: '9:16 Vertical', width: 720, height: 1280, desc: 'Reels / Shorts' },
+  { id: '16:9', label: '16:9 Landscape', width: 1280, height: 720, desc: 'YouTube / Wide' },
+  { id: '1:1', label: '1:1 Square', width: 1080, height: 1080, desc: 'Feed Post' },
+  { id: '4:5', label: '4:5 Portrait', width: 864, height: 1080, desc: 'Social Portrait' },
+]
 
 const DEFAULT_FILTERS: { id: FilterPreset; label: string; category: string }[] = [
   { id: 'none', label: 'Original', category: 'Basic' },
@@ -131,7 +139,11 @@ export default function App() {
   const [ttsLang, setTtsLang] = useState<'en' | 'ta'>('en')
 
   // Look, Transition, Audio, Trim & FX drafts
+  const [aspectRatioDraft, setAspectRatioDraft] = useState<AspectRatio>('9:16')
   const [durationDraft, setDurationDraft] = useState(15)
+  const [selectedInbuiltAudioId, setSelectedInbuiltAudioId] = useState('soft_calm')
+  const [previewingAudioId, setPreviewingAudioId] = useState<string | null>(null)
+  const inbuiltPreviewRef = useRef<HTMLAudioElement | null>(null)
   const [zoomDraft, setZoomDraft] = useState<'smooth' | 'none'>('smooth')
   const [brightnessDraft, setBrightnessDraft] = useState(0)
   const [fitDraft, setFitDraft] = useState<'contain' | 'cover'>('contain')
@@ -224,6 +236,7 @@ export default function App() {
     setOverlayColorDraft(activeLayer?.color ?? s?.overlay_color ?? 'lime')
     setOverlayAnimDraft(activeLayer?.animation ?? 'none')
 
+    setAspectRatioDraft((s?.aspect_ratio as AspectRatio | undefined) ?? '9:16')
     setDurationDraft(s?.duration_seconds ?? 15)
     setZoomDraft(s?.zoom_style ?? 'smooth')
     setBrightnessDraft(s?.brightness ?? 0)
@@ -336,9 +349,15 @@ export default function App() {
     }
     setError('')
     setBusy(true)
-    setStage('Uploading your media')
+    setStage(audio ? 'Uploading your music' : 'Uploading your media')
     try {
       let latest = project
+      if (audio) {
+        const existingAudio = project.assets.find((a) => a.media_type === 'audio')
+        if (existingAudio) {
+          latest = await api<Project>(`/projects/${pid}/assets/${existingAudio.id}`, { method: 'DELETE' })
+        }
+      }
       for (const file of files) {
         const form = new FormData()
         form.append('file', file)
@@ -707,11 +726,31 @@ export default function App() {
     void el.requestFullscreen()
   }
 
+  function toggleAudioPreview(audioId: string) {
+    const el = inbuiltPreviewRef.current
+    if (previewingAudioId === audioId) {
+      el?.pause()
+      setPreviewingAudioId(null)
+      return
+    }
+    if (el) {
+      el.src = `/api/assets-catalog/audio/${audioId}`
+      void el.play().catch(() => {})
+    }
+    setPreviewingAudioId(audioId)
+  }
+
   const totalDur = project?.settings?.duration_seconds ?? 15
   const audioAsset = project?.assets.find((a) => a.media_type === 'audio')
   const speechReady = caps?.speech.status === 'ready'
-  const filterChoices = catalog?.filters ?? DEFAULT_FILTERS
-  const transitionChoices = catalog?.transitions ?? DEFAULT_TRANSITIONS
+  const aspectChoices = Array.isArray(catalog?.aspect_ratios) && catalog.aspect_ratios.length > 0 ? catalog.aspect_ratios : ASPECT_RATIO_OPTIONS
+  const currentAspectRatio = ((project?.settings?.aspect_ratio as AspectRatio | undefined) ?? aspectRatioDraft ?? '9:16') as AspectRatio
+  const activeAspectInfo = aspectChoices.find((a) => a.id === currentAspectRatio) ?? ASPECT_RATIO_OPTIONS[0]
+  const isLandscape = activeAspectInfo.width > activeAspectInfo.height
+  const catalogAudioPacks = Array.isArray(catalog?.audio_packs) ? catalog.audio_packs : []
+  const soothingPacks = catalogAudioPacks.filter((p) => p.category !== 'SFX')
+  const filterChoices = Array.isArray(catalog?.filters) && catalog.filters.length > 0 ? catalog.filters : DEFAULT_FILTERS
+  const transitionChoices = Array.isArray(catalog?.transitions) && catalog.transitions.length > 0 ? catalog.transitions : DEFAULT_TRANSITIONS
 
   return (
     <div className="studio-shell">
@@ -725,9 +764,24 @@ export default function App() {
         </a>
 
         <div className="topbar-meta" aria-label="Project summary">
-          <span>
+          <span className="topbar-aspect">
             <Film size={13} />
-            9:16 · 720×1280
+            <select
+              aria-label="Aspect ratio"
+              value={currentAspectRatio}
+              disabled={busy || !project}
+              onChange={(e) => {
+                const next = e.target.value as AspectRatio
+                setAspectRatioDraft(next)
+                void applyVisualEdit({ aspect_ratio: next, render: mediaAssets.length > 0 }, `Switching format to ${next}`)
+              }}
+            >
+              {aspectChoices.map((ar) => (
+                <option key={ar.id} value={ar.id}>
+                  {ar.id} · {ar.width}×{ar.height}
+                </option>
+              ))}
+            </select>
           </span>
           <span>{totalDur}s</span>
           <span>{mediaAssets.length}/5 media</span>
@@ -908,7 +962,10 @@ export default function App() {
               <div className="media-bin-footer">
                 <div className="bin-audio-pill">
                   <Music2 size={14} />
-                  <span>{audioAsset?.filename ?? 'Original demo music'}</span>
+                  <span>{audioAsset?.filename ?? 'Inbuilt music'}</span>
+                  <button type="button" className="text-button" disabled={busy || !project} onClick={() => music.current?.click()}>
+                    Your music
+                  </button>
                   <button type="button" className="text-button" onClick={() => setActiveTab('audio')}>
                     Mix
                   </button>
@@ -924,7 +981,10 @@ export default function App() {
                 </div>
 
                 <div className="preview-canvas">
-                  <div className="video-frame">
+                  <div
+                    className={`video-frame ${isLandscape ? 'landscape' : ''}`}
+                    style={{ aspectRatio: `${activeAspectInfo.width} / ${activeAspectInfo.height}` }}
+                  >
                     {project?.current_output ? (
                       <video
                         ref={videoRef}
@@ -1332,7 +1392,7 @@ export default function App() {
                       <div className="toggle-row">
                         <div>
                           <strong>Background music</strong>
-                          <span>{audioAsset?.filename ?? 'Original demo music'}</span>
+                          <span>{audioAsset?.filename ?? 'Inbuilt music'}</span>
                         </div>
                         <input type="checkbox" aria-label="Enable background music" checked={musicEnabledDraft} disabled={busy} onChange={(e) => setMusicEnabledDraft(e.target.checked)} />
                       </div>
@@ -1344,14 +1404,13 @@ export default function App() {
                       </div>
                       <div className="music-row">
                         <Music2 size={15} />
-                        <span>{audioAsset?.filename ?? 'Original demo music included'}</span>
-                        {audioAsset ? (
+                        <span>{audioAsset?.filename ?? 'Inbuilt music included'}</span>
+                        <button type="button" className="text-button" disabled={busy || !project} onClick={() => music.current?.click()}>
+                          Your music
+                        </button>
+                        {audioAsset && (
                           <button type="button" className="text-button" disabled={busy} onClick={() => void remove(audioAsset.id)}>
                             Remove
-                          </button>
-                        ) : (
-                          <button type="button" className="text-button" disabled={busy || !project} onClick={() => music.current?.click()}>
-                            Use my music
                           </button>
                         )}
                         <input
@@ -1366,6 +1425,46 @@ export default function App() {
                           }}
                         />
                       </div>
+                      {soothingPacks.length > 0 && (
+                        <div className="control-group">
+                          <span className="field-label">Inbuilt soothing music ({soothingPacks.filter((p) => p.category === 'Soothing').length} CC0 tracks)</span>
+                          <div className="caption-item">
+                            <select
+                              className="compact-select inbuilt-select"
+                              aria-label="Inbuilt soothing music"
+                              value={selectedInbuiltAudioId}
+                              disabled={busy}
+                              onChange={(e) => setSelectedInbuiltAudioId(e.target.value)}
+                            >
+                              {soothingPacks.map((pack) => (
+                                <option key={pack.id} value={pack.id}>
+                                  {pack.name} · {Math.round(pack.duration_seconds)}s
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              className="quiet"
+                              aria-label={previewingAudioId === selectedInbuiltAudioId ? 'Stop preview track' : 'Preview soothing track'}
+                              onClick={() => toggleAudioPreview(selectedInbuiltAudioId)}
+                            >
+                              {previewingAudioId === selectedInbuiltAudioId ? <Pause size={13} /> : <Play size={13} />}
+                            </button>
+                            <button
+                              type="button"
+                              className="quiet"
+                              disabled={busy || !project}
+                              onClick={() => {
+                                inbuiltPreviewRef.current?.pause()
+                                setPreviewingAudioId(null)
+                                void attachCatalogAudio(selectedInbuiltAudioId)
+                              }}
+                            >
+                              Use track
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       <div className="toggle-row">
                         <div>
                           <strong>Original video clip audio</strong>
@@ -1462,6 +1561,22 @@ export default function App() {
                   {activeTab === 'look' && (
                     <div className="panel-fields">
                       <div className="control-group">
+                        <span className="field-label">Aspect ratio &amp; resolution</span>
+                        <div className="pill-row">
+                          {aspectChoices.map((ar) => (
+                            <button
+                              key={ar.id}
+                              type="button"
+                              className={`pill-btn ${aspectRatioDraft === ar.id ? 'active' : ''}`}
+                              disabled={busy}
+                              onClick={() => setAspectRatioDraft(ar.id)}
+                            >
+                              {ar.id} ({ar.width}×{ar.height})
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="control-group">
                         <label className="field-label" htmlFor="reel-dur">
                           Reel duration: {durationDraft}s
                         </label>
@@ -1487,7 +1602,7 @@ export default function App() {
                             Fit frame
                           </button>
                           <button type="button" className={`pill-btn ${fitDraft === 'cover' ? 'active' : ''}`} disabled={busy} onClick={() => setFitDraft('cover')}>
-                            Fill 9:16
+                            Fill {aspectRatioDraft}
                           </button>
                         </div>
                       </div>
@@ -1542,6 +1657,7 @@ export default function App() {
                         onClick={() =>
                           void applyVisualEdit(
                             {
+                              aspect_ratio: aspectRatioDraft,
                               duration_seconds: durationDraft,
                               zoom_style: zoomDraft,
                               brightness: brightnessDraft,
@@ -1882,21 +1998,39 @@ export default function App() {
                       </div>
 
                       <div className="subpanel-divider" />
-                      <span className="field-label">Royalty-Free Local Music &amp; SFX</span>
+                      <span className="field-label">Inbuilt Soothing Music &amp; SFX (CC0 / Local)</span>
                       <div className="catalog-list">
-                        {(catalog?.audio_packs ?? []).map((pack) => (
+                        {catalogAudioPacks.map((pack) => (
                           <div key={pack.id} className="catalog-card">
                             <div>
                               <strong>{pack.name}</strong>
                               <span>{pack.category} · {pack.duration_seconds}s · {pack.license}</span>
                             </div>
-                            <button type="button" className="quiet" disabled={busy || !project} onClick={() => void attachCatalogAudio(pack.id)}>
-                              Use
-                            </button>
+                            <div className="catalog-actions">
+                              <button
+                                type="button"
+                                className="quiet"
+                                aria-label={previewingAudioId === pack.id ? `Stop ${pack.name}` : `Preview ${pack.name}`}
+                                onClick={() => toggleAudioPreview(pack.id)}
+                              >
+                                {previewingAudioId === pack.id ? <Pause size={12} /> : <Play size={12} />}
+                              </button>
+                              <button
+                                type="button"
+                                className="quiet"
+                                disabled={busy || !project}
+                                onClick={() => {
+                                  inbuiltPreviewRef.current?.pause()
+                                  setPreviewingAudioId(null)
+                                  void attachCatalogAudio(pack.id)
+                                }}
+                              >
+                                Use
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
-
                       <div className="notice">
                         <Layers size={13} /> <strong>Stock Video:</strong> {catalog?.stock_video?.note ?? 'Deferred (P2+) for 100% offline/no-copyright editing.'}
                       </div>
@@ -1965,6 +2099,7 @@ export default function App() {
         </main>
       </div>
 
+      <audio ref={inbuiltPreviewRef} className="sr-only" onEnded={() => setPreviewingAudioId(null)} />
       {resetting && (
         <div className="modal-backdrop">
           <div className="modal" role="dialog" aria-modal="true" aria-labelledby="reset-title">

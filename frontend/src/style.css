@@ -47,6 +47,8 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 .studio-topbar{height:48px;flex-shrink:0;border-bottom:1px solid #232920;padding:0 14px;display:flex;align-items:center;justify-content:space-between;gap:12px;background:#101310;z-index:20}
 .topbar-meta{display:flex;align-items:center;gap:8px;font-size:11.5px;color:#9ba892}
 .topbar-meta>span{display:inline-flex;align-items:center;gap:6px;background:#181d16;border:1px solid #2a3126;padding:3px 9px;border-radius:999px}
+.topbar-aspect select{background:transparent;border:0;color:#dce5d3;font:inherit;font-size:11.5px;cursor:pointer;outline:none;padding-right:2px}
+.topbar-aspect option{background:#181d16;color:#edf2e8}
 .speech-pill i{width:7px;height:7px;border-radius:50%;background:#d48a2b;display:inline-block}
 .speech-pill.ok i{background:#d7ef41;box-shadow:0 0 8px #d7ef41}
 .topbar-actions{display:flex;align-items:center;gap:6px}
@@ -96,6 +98,7 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 .preview-label{font-size:10px;letter-spacing:1.4px;color:#92a189}
 .preview-canvas{flex:1;min-height:0;background:#070908;border:1px solid #242b21;border-radius:10px;padding:6px;display:grid;place-items:center;overflow:hidden}
 .video-frame{height:100%;max-height:100%;aspect-ratio:9/16;width:auto;max-width:100%;position:relative;background:#070908;border:1px solid #2d3629;border-radius:10px;overflow:hidden;box-shadow:0 14px 30px -14px rgba(0,0,0,.85)}
+.video-frame.landscape{width:100%;height:auto;max-width:100%;max-height:100%}
 .video-frame video{display:block;width:100%;height:100%;object-fit:contain;background:#070908}
 .empty-preview{height:100%;padding:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(ellipse at 50% 28%,#202a1a,transparent 72%)}
 .empty-preview h3{font-size:16px;font-weight:650;margin:10px 0 4px;letter-spacing:-.4px}
@@ -165,6 +168,8 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 .catalog-card{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:8px;background:#161b15;border:1px solid #283024}
 .catalog-card strong{display:block;font-size:12px;color:#e7ede2}
 .catalog-card span{display:block;font-size:10.5px;color:#94a18a;margin-top:2px}
+.catalog-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.inbuilt-select{flex:1;min-width:0}
 .tl-clip-slot{flex:1;min-width:0;height:100%;display:flex;align-items:center;gap:3px}
 .tl-clip-slot .tl-clip{flex:1}
 .tl-transition-chip{width:20px;height:24px;flex-shrink:0;border-radius:5px;border:1px solid #44562a;background:#1c2416;color:#d7ef41;display:grid;place-items:center}

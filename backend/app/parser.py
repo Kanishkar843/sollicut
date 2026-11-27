@@ -197,10 +197,14 @@ def parse(raw: str, media_count: int, has_reel: bool = False, context: dict | No
         add("set_duration", duration_seconds=float(duration[1]))
     if duration and not 3 <= float(duration[1]) <= 30:
         return clarify("Choose a reel length between 3 and 30 seconds.")
-    if re.search(r"reel format|vertical|9\s*:\s*16|செங்குத்து", text) and not create:
+    if re.search(r"landscape|16\s*:\s*9|widescreen|youtube", text):
+        add("set_aspect_ratio", aspect_ratio="16:9")
+    elif re.search(r"\bsquare\b|1\s*:\s*1", text):
+        add("set_aspect_ratio", aspect_ratio="1:1")
+    elif re.search(r"\bportrait\b|4\s*:\s*5", text):
+        add("set_aspect_ratio", aspect_ratio="4:5")
+    elif re.search(r"reel format|vertical|9\s*:\s*16|செங்குத்து", text) and not create:
         add("set_aspect_ratio", aspect_ratio="9:16")
-    if re.search(r"landscape|16\s*:\s*9|square", text):
-        return clarify("Only vertical 9:16 reels are supported in this prototype.")
     if re.search(r"zoom|ஜூம்", text):
         add("set_zoom_style", style="none" if re.search(r"no zoom|remove zoom|zoom off", text) else "smooth")
     if re.search(r"(?:clip|video|original)\s+audio|mute\s+(?:clip|video)|வீடியோ\s*ஆடியோ", text):

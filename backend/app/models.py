@@ -13,6 +13,14 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+AspectRatio = Literal["9:16", "16:9", "1:1", "4:5"]
+ASPECT_DIMENSIONS: dict[str, tuple[int, int]] = {
+    "9:16": (720, 1280),
+    "16:9": (1280, 720),
+    "1:1": (1080, 1080),
+    "4:5": (864, 1080),
+}
+
 FilterPreset = Literal[
     "none",
     "cinematic",
@@ -89,8 +97,9 @@ class Asset(StrictModel):
 
 class ReelSettings(StrictModel):
     duration_seconds: float = Field(default=15, ge=3, le=30)
-    width: Literal[720] = 720
-    height: Literal[1280] = 1280
+    aspect_ratio: AspectRatio = "9:16"
+    width: int = Field(default=720, ge=360, le=1920)
+    height: int = Field(default=1280, ge=360, le=1920)
     fps: Literal[30] = 30
     zoom_style: Literal["none", "smooth"] = "smooth"
     music_enabled: bool = True
@@ -201,6 +210,7 @@ class GenerateRequest(StrictModel):
 
 class VisualEditRequest(StrictModel):
     duration_seconds: float | None = Field(default=None, ge=3, le=30)
+    aspect_ratio: AspectRatio | None = None
     zoom_style: Literal["none", "smooth"] | None = None
     music_enabled: bool | None = None
     music_volume: float | None = Field(default=None, ge=0, le=1)

@@ -1,4 +1,11 @@
-"""Built-in royalty-free local templates, audio/SFX packs, filter/transition categories, and stickers."""
+"""Built-in CC0 / MIT royalty-free local templates, soothing music & SFX packs, aspect ratios, filters, and stickers."""
+
+ASPECT_RATIOS = [
+    {"id": "9:16", "label": "9:16 Vertical", "width": 720, "height": 1280, "desc": "Reels / Shorts"},
+    {"id": "16:9", "label": "16:9 Landscape", "width": 1280, "height": 720, "desc": "YouTube / Wide"},
+    {"id": "1:1", "label": "1:1 Square", "width": 1080, "height": 1080, "desc": "Feed Post"},
+    {"id": "4:5", "label": "4:5 Portrait", "width": 864, "height": 1080, "desc": "Social Portrait"},
+]
 
 TEMPLATES = [
     {
@@ -112,46 +119,27 @@ TEMPLATES = [
 ]
 
 AUDIO_PACKS = [
-    {
-        "id": "demo_chord_bed",
-        "name": "Original Demo Chord Bed",
-        "category": "Music",
-        "filename": "music.wav",
-        "duration_seconds": 8.0,
-        "license": "Generated in-repo (MIT)",
-    },
-    {
-        "id": "upbeat_pulse",
-        "name": "Upbeat Retail Pulse",
-        "category": "Music",
-        "filename": "upbeat-pulse.wav",
-        "duration_seconds": 8.0,
-        "license": "Generated in-repo (MIT)",
-    },
-    {
-        "id": "ambient_pad",
-        "name": "Warm Ambient Craft Pad",
-        "category": "Music",
-        "filename": "ambient-pad.wav",
-        "duration_seconds": 8.0,
-        "license": "Generated in-repo (MIT)",
-    },
-    {
-        "id": "sfx_whoosh",
-        "name": "Transition Whoosh SFX",
-        "category": "SFX",
-        "filename": "sfx-whoosh.wav",
-        "duration_seconds": 1.2,
-        "license": "Generated in-repo (MIT)",
-    },
-    {
-        "id": "sfx_chime",
-        "name": "Offer Reveal Chime SFX",
-        "category": "SFX",
-        "filename": "sfx-chime.wav",
-        "duration_seconds": 1.5,
-        "license": "Generated in-repo (MIT)",
-    },
+    # 14 CC0 Soothing Music Tracks (Wikimedia Commons Public Domain CC0)
+    {"id": "soft_calm", "name": "Soft Calm (Soothing)", "category": "Soothing", "filename": "soft-calm.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Jorge Mario Zuleta)"},
+    {"id": "river_dream", "name": "River Under Dream", "category": "Soothing", "filename": "river-dream.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Jorge Mario Zuleta)"},
+    {"id": "las_flores", "name": "Las Flores Acoustic", "category": "Soothing", "filename": "las-flores.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Jorge Mario Zuleta)"},
+    {"id": "the_cloud", "name": "Floating Cloud", "category": "Soothing", "filename": "the-cloud.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Jorge Mario Zuleta)"},
+    {"id": "sand_places", "name": "Sand Places Ambient", "category": "Soothing", "filename": "sand-places.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Jorge Mario Zuleta)"},
+    {"id": "gentle_nature", "name": "Gentle Nature", "category": "Soothing", "filename": "gentle-nature.mp3", "folder": "music", "duration_seconds": 15.0, "license": "CC0 1.0 (Jorge Mario Zuleta)"},
+    {"id": "calm_down", "name": "Calm Down Lo-Fi", "category": "Soothing", "filename": "calm-down.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Rafael Archangel)"},
+    {"id": "sleep_time", "name": "Sleep Time Pad", "category": "Soothing", "filename": "sleep-time.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Rafael Archangel)"},
+    {"id": "sakura_breeze", "name": "Sakura Breeze", "category": "Soothing", "filename": "sakura-breeze.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Rafael Archangel)"},
+    {"id": "melancholy_tune", "name": "Warm Evening Tune", "category": "Soothing", "filename": "melancholy-tune.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Rafael Archangel)"},
+    {"id": "dusty_chords", "name": "Dusty Chords", "category": "Soothing", "filename": "dusty-chords.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Rafael Archangel)"},
+    {"id": "stay_calm", "name": "Stay Calm Ambient", "category": "Soothing", "filename": "stay-calm.mp3", "folder": "music", "duration_seconds": 29.3, "license": "CC0 1.0 (Frederic Lardon)"},
+    {"id": "relaxing_piano", "name": "Relaxing Soft Piano", "category": "Soothing", "filename": "relaxing-piano.mp3", "folder": "music", "duration_seconds": 30.0, "license": "CC0 1.0 (Wikimedia Commons)"},
+    {"id": "piano_instrumental", "name": "Marista Piano Instrumental", "category": "Soothing", "filename": "piano-instrumental.mp3", "folder": "music", "duration_seconds": 29.8, "license": "CC0 1.0 (Shumi-Marista)"},
+    # Local synthesized inbuilt music & SFX
+    {"id": "inbuilt_chord_bed", "name": "Inbuilt Music Chord Bed", "category": "Inbuilt", "filename": "music.wav", "folder": "demo", "duration_seconds": 8.0, "license": "Generated in-repo (MIT)"},
+    {"id": "upbeat_pulse", "name": "Upbeat Retail Pulse", "category": "Inbuilt", "filename": "upbeat-pulse.wav", "folder": "demo", "duration_seconds": 8.0, "license": "Generated in-repo (MIT)"},
+    {"id": "ambient_pad", "name": "Warm Ambient Craft Pad", "category": "Inbuilt", "filename": "ambient-pad.wav", "folder": "demo", "duration_seconds": 8.0, "license": "Generated in-repo (MIT)"},
+    {"id": "sfx_whoosh", "name": "Transition Whoosh SFX", "category": "SFX", "filename": "sfx-whoosh.wav", "folder": "demo", "duration_seconds": 1.2, "license": "Generated in-repo (MIT)"},
+    {"id": "sfx_chime", "name": "Offer Reveal Chime SFX", "category": "SFX", "filename": "sfx-chime.wav", "folder": "demo", "duration_seconds": 1.5, "license": "Generated in-repo (MIT)"},
 ]
 
 FILTERS = [
@@ -186,6 +174,7 @@ STICKERS = [
 
 def get_catalog() -> dict:
     return {
+        "aspect_ratios": ASPECT_RATIOS,
         "templates": TEMPLATES,
         "audio_packs": AUDIO_PACKS,
         "filters": FILTERS,

@@ -25,6 +25,7 @@ export type TextLayer = {
   is_caption?: boolean
 }
 
+export type AspectRatio = '9:16' | '16:9' | '1:1' | '4:5'
 export type FilterPreset = 'none' | 'cinematic' | 'warm' | 'cool' | 'bw' | 'vivid' | 'vintage' | 'high_contrast'
 export type TransitionStyle = 'none' | 'fade' | 'dissolve' | 'slideleft' | 'slideright' | 'wipeleft' | 'circleopen'
 export type SpeedCurve = 'normal' | 'slow_mo' | 'fast' | 'ramp_in' | 'ramp_out'
@@ -56,6 +57,7 @@ export type Operation = { id: string; type: string; parameters: Record<string, u
 
 export type ReelSettings = {
   duration_seconds: number
+  aspect_ratio?: AspectRatio
   width: number
   height: number
   fps: number
@@ -123,8 +125,9 @@ export type Capabilities = {
 }
 
 export type AssetsCatalog = {
+  aspect_ratios?: { id: AspectRatio; label: string; width: number; height: number; desc: string }[]
   templates: { id: string; name: string; description: string; badge: string; settings: Record<string, unknown> }[]
-  audio_packs: { id: string; name: string; category: string; filename: string; duration_seconds: number; license: string }[]
+  audio_packs: { id: string; name: string; category: string; filename: string; folder?: string; duration_seconds: number; license: string }[]
   filters: { id: FilterPreset; label: string; category: string }[]
   transitions: { id: TransitionStyle; label: string; category: string }[]
   stickers: { id: StickerBadge; label: string }[]
@@ -167,7 +170,7 @@ export function operationLabel(op: Operation): string {
     case 'set_overlay_style':
       return 'Text style updated'
     case 'set_aspect_ratio':
-      return 'Vertical 9:16 format'
+      return `Format ${p.aspect_ratio ?? '9:16'}`
     case 'set_brightness':
       return Number(p.value) > 0 ? 'Brighter look' : 'Darker look'
     case 'set_transition':

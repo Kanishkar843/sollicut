@@ -208,7 +208,43 @@ def test_auto_captions_tts_and_catalog_templates(api_client, tmp_path, monkeypat
 
     aud_res = api_client.post(f"{root}/attach-catalog-audio", json={"audio_id": "upbeat_pulse", "render": False})
     assert aud_res.status_code == 200
-    assert any(a["filename"] == "upbeat-pulse.wav" for a in aud_res.json()["project"]["assets"])
+    assert any(a["filename"] == "Upbeat Retail Pulse" for a in aud_res.json()["project"]["assets"])
+
+
+def test_aspect_ratio_switch_and_inbuilt_soothing_music(api_client, tmp_path):
+    cat = api_client.get("/api/assets-catalog").json()
+    ratio_ids = {r["id"] for r in cat["aspect_ratios"]}
+    assert {"9:16", "16:9", "1:1", "4:5"} <= ratio_ids
+    soothing = [p for p in cat["audio_packs"] if p.get("folder") == "music"]
+    assert 10 <= len(soothing) <= 15
+
+    # Stream soothing audio preview endpoint
+    preview = api_client.get("/api/assets-catalog/audio/soft_calm")
+    assert preview.status_code == 200 and len(preview.content) > 1000
+
+    pid = api_client.post("/api/projects").json()["id"]
+    root = f"/api/projects/{pid}"
+    img_path = tmp_path / "photo.png"
+    _green_subject_photo(img_path)
+    assert api_client.post(f"{root}/assets", files={"file": ("photo.png", img_path.read_bytes(), "image/png")}).status_code == 200
+
+    # Attach inbuilt soothing track
+    att = api_client.post(f"{root}/attach-catalog-audio", json={"audio_id": "soft_calm", "render": False})
+    assert att.status_code == 200
+    assert any(a["filename"] == "Soft Calm (Soothing)" for a in att.json()["project"]["assets"])
+
+    # Switch to 16:9 landscape and render
+    edit = api_client.post(f"{root}/edit", json={"aspect_ratio": "16:9", "duration_seconds": 3, "render": True})
+    assert edit.status_code == 200
+    _wait_job(api_client, edit.json()["job_id"])
+
+    out_proj = api_client.get(root).json()
+    assert out_proj["settings"]["aspect_ratio"] == "16:9"
+    assert (out_proj["settings"]["width"], out_proj["settings"]["height"]) == (1280, 720)
+    out_file = storage.project_dir(pid) / out_proj["current_output"]
+    probe = media.probe(out_file)
+    vstream = next(s for s in probe["streams"] if s["codec_type"] == "video")
+    assert (vstream["width"], vstream["height"]) == (1280, 720)
 
 
 def test_undo_redo_ten_snapshot_cap(api_client):

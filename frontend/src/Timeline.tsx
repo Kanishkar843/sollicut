@@ -349,7 +349,7 @@ export default function Timeline({
             <button type="button" className={`tl-audio-bar ${!musicEnabled ? 'muted' : ''}`} onClick={() => onJumpTab('audio')}>
               <div className="tl-audio-meta">
                 <span>
-                  {musicEnabled ? audioAsset?.filename ?? 'Original demo music' : 'Background music muted'}
+                  {musicEnabled ? audioAsset?.filename ?? 'Inbuilt music' : 'Background music muted'}
                   {keepClipAudio ? ' + Clip audio' : ''}
                   {audioFlags.length ? ` · ${audioFlags.join(' · ')}` : ''}
                 </span>
