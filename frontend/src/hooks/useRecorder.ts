@@ -9,6 +9,18 @@ export function microphoneError(error: unknown): string {
   return error instanceof Error ? error.message : 'Recording was interrupted. Please try again.'
 }
 
+/** V2 lifecycle states visible to consumers */
+export type RecorderState =
+  | 'idle'
+  | 'initializing'
+  | 'recording'
+  | 'stopping'
+  | 'flushing'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
 type StartOptions = {
   projectId?: string
   mode: AsrMode
@@ -20,11 +32,15 @@ type StartOptions = {
 
 const MAX_RECORD_SECONDS = 30
 const SILENCE_ENDPOINT_MS = 1800
+const FLUSH_ACK_TIMEOUT_MS = 1500
 
 export function useRecorder() {
-  const [recording, setRecording] = useState(false)
+  const [recorderState, setRecorderState] = useState<RecorderState>('idle')
   const [seconds, setSeconds] = useState(0)
   const [rmsLevel, setRmsLevel] = useState(0)
+
+  // Derived boolean for compatibility with existing callers
+  const recording = recorderState === 'recording'
 
   const alive = useRef(true)
   const recorderRef = useRef<MediaRecorder | null>(null)
@@ -101,7 +117,7 @@ export function useRecorder() {
       interrupted = true
       onError('Recording was interrupted. Please record again.')
       cleanupAudio()
-      setRecording(false)
+      setRecorderState('failed')
     }
     stream.getAudioTracks()[0].onended = () => {
       if (r.state === 'recording') {
@@ -113,7 +129,7 @@ export function useRecorder() {
     r.onstop = () => {
       cleanupAudio()
       if (!alive.current) return
-      setRecording(false)
+      setRecorderState(interrupted ? 'failed' : 'completed')
       if (interrupted) return
       const blob = new Blob(chunks, { type: r.mimeType })
       if (!blob.size) {
@@ -126,7 +142,7 @@ export function useRecorder() {
       if (r.state === 'recording') r.stop()
     }
     r.start(250)
-    setRecording(true)
+    setRecorderState('recording')
     setSeconds(0)
     const began = Date.now()
     timerRef.current = setInterval(() => {
@@ -141,6 +157,7 @@ export function useRecorder() {
   async function start(opts: StartOptions) {
     const { projectId, mode, onStreamResult, onProcessing, onAudio, onError } = opts
     stoppingRef.current = false
+    setRecorderState('initializing')
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('This browser cannot record audio. Use a current browser on localhost or HTTPS.')
@@ -156,6 +173,7 @@ export function useRecorder() {
       })
       if (!alive.current) {
         stream.getTracks().forEach((t) => t.stop())
+        setRecorderState('cancelled')
         return
       }
       streamRef.current = stream
@@ -181,7 +199,7 @@ export function useRecorder() {
       startMediaRecorderFallback(stream, onAudio, onError)
     } catch (error) {
       cleanupAudio()
-      setRecording(false)
+      setRecorderState('failed')
       onError(microphoneError(error))
     }
   }
@@ -200,6 +218,7 @@ export function useRecorder() {
     const capturedPcm: Int16Array[] = []
     let wsFailed = false
     let wsFinalized = false
+    let flushAckReceived = false
 
     try {
       audioCtx = new AudioContext()
@@ -210,6 +229,7 @@ export function useRecorder() {
       await audioCtx.audioWorklet.addModule('/pcm-processor.js')
       if (!alive.current) {
         void audioCtx.close().catch(() => {})
+        setRecorderState('cancelled')
         return false
       }
 
@@ -238,21 +258,81 @@ export function useRecorder() {
       let speechDetected = false
       let silenceMs = 0
 
+      /**
+       * Phase 1: Send 'flush' to worklet, wait for 'flushed' ack before
+       * disconnecting AudioContext and sending 'stop' to WS.
+       */
       const finalizeStop = () => {
         if (stoppingRef.current) return
         stoppingRef.current = true
-        cleanupAudio()
-        setRecording(false)
-        if (ws && ws.readyState === WebSocket.OPEN && !wsFailed) {
-          onProcessing?.()
-          try {
-            ws.send(JSON.stringify({ event: 'stop' }))
-          } catch {
-            wsFailed = true
+        setRecorderState('stopping')
+
+        // Stop the timer and mic tracks so the browser shows mic as inactive
+        if (timerRef.current) {
+          clearInterval(timerRef.current)
+          timerRef.current = null
+        }
+        streamRef.current?.getTracks().forEach((t) => t.stop())
+        streamRef.current = null
+
+        // Signal worklet to flush its partial buffer
+        setRecorderState('flushing')
+        node.port.postMessage({ type: 'flush' })
+
+        // Guard: if worklet flush ack doesn't arrive within timeout, proceed anyway
+        const flushTimeout = setTimeout(() => {
+          if (!flushAckReceived) {
+            flushAckReceived = true
+            sendStop()
+          }
+        }, FLUSH_ACK_TIMEOUT_MS)
+
+        node.port.onmessage = (ev: MessageEvent) => {
+          const d = ev.data as Record<string, unknown>
+          if (d.type === 'flushed') {
+            clearTimeout(flushTimeout)
+            flushAckReceived = true
+            sendStop()
+            return
+          }
+          // Handle any final PCM chunk from flush
+          if (d.pcm) {
+            const { pcm, rms } = d as { pcm: ArrayBuffer; rms: number }
+            capturedPcm.push(new Int16Array(pcm.slice(0)))
+            if (ws && ws.readyState === WebSocket.OPEN && !wsFailed) {
+              ws.send(pcm)
+            }
+            setRmsLevel(rms)
           }
         }
-        if (wsFailed && capturedPcm.length) {
-          onAudio(encodeWav16k(capturedPcm), 'wav')
+
+        function sendStop() {
+          // Now safe to close AudioContext (all PCM sent)
+          try {
+            workletRef.current?.disconnect()
+          } catch {
+            // ignore
+          }
+          workletRef.current = null
+          if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+            void audioCtxRef.current.close().catch(() => {})
+          }
+          audioCtxRef.current = null
+          setRmsLevel(0)
+
+          if (ws && ws.readyState === WebSocket.OPEN && !wsFailed) {
+            setRecorderState('processing')
+            onProcessing?.()
+            try {
+              ws.send(JSON.stringify({ event: 'stop' }))
+            } catch {
+              wsFailed = true
+            }
+          }
+          if (wsFailed && capturedPcm.length) {
+            setRecorderState('completed')
+            onAudio(encodeWav16k(capturedPcm), 'wav')
+          }
         }
       }
 
@@ -263,11 +343,14 @@ export function useRecorder() {
         try {
           const data = JSON.parse(String(ev.data)) as Command & { error?: string }
           if (data.error) {
+            setRecorderState('failed')
             onError(data.error)
           } else {
+            setRecorderState('completed')
             onStreamResult(data)
           }
         } catch {
+          setRecorderState('failed')
           onError('Received an unreadable speech response from the server.')
         } finally {
           ws?.close()
@@ -279,18 +362,20 @@ export function useRecorder() {
         if (!wsFinalized && !stoppingRef.current) {
           wsFailed = true
         } else if (!wsFinalized) {
+          setRecorderState('failed')
           onError('Lost connection to the speech stream. Please try again.')
         }
       }
 
       ws.onclose = () => {
         if (!wsFinalized && stoppingRef.current && wsFailed && capturedPcm.length) {
+          setRecorderState('completed')
           onAudio(encodeWav16k(capturedPcm), 'wav')
         }
         wsRef.current = null
       }
 
-      node.port.onmessage = (ev: MessageEvent<{ pcm: ArrayBuffer; rms: number }>) => {
+      node.port.onmessage = (ev: MessageEvent<{ pcm: ArrayBuffer; rms: number; peak?: number; clip_ratio?: number; seq?: number; is_flush?: boolean }>) => {
         if (stoppingRef.current) return
         const { pcm, rms } = ev.data
         setRmsLevel(rms)
@@ -316,7 +401,7 @@ export function useRecorder() {
         }
       }
 
-      setRecording(true)
+      setRecorderState('recording')
       setSeconds(0)
       const began = Date.now()
       timerRef.current = setInterval(() => {
@@ -342,5 +427,5 @@ export function useRecorder() {
     stopActionRef.current?.()
   }
 
-  return { recording, seconds, rmsLevel, start, stop }
+  return { recording, recorderState, seconds, rmsLevel, start, stop }
 }

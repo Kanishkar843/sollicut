@@ -299,11 +299,21 @@ test('WebSocket AudioWorklet streaming sends PCM frames, stop control, and rende
     }
   }
 
-  const workletRef: { onmessage: ((ev: { data: { pcm: ArrayBuffer; rms: number } }) => void) | null } = { onmessage: null }
+  // Track the current onmessage handler (reassigned during flush phase)
+  let currentOnMessage: ((ev: { data: unknown }) => void) | null = null
+  const workletRef: { onmessage: ((ev: { data: { pcm: ArrayBuffer; rms: number } }) => void) | null } = {
+    get onmessage() { return currentOnMessage as ((ev: { data: { pcm: ArrayBuffer; rms: number } }) => void) | null },
+    set onmessage(fn) { currentOnMessage = fn as ((ev: { data: unknown }) => void) | null },
+  }
   class MockWorkletNode {
     port = {
-      set onmessage(fn: ((ev: { data: { pcm: ArrayBuffer; rms: number } }) => void) | null) {
-        workletRef.onmessage = fn
+      get onmessage() { return currentOnMessage },
+      set onmessage(fn: ((ev: { data: unknown }) => void) | null) { currentOnMessage = fn },
+      postMessage(msg: unknown) {
+        // Simulate flush ack: when worklet receives {type:'flush'}, immediately reply {type:'flushed'}
+        if (msg && typeof msg === 'object' && (msg as Record<string, unknown>).type === 'flush') {
+          queueMicrotask(() => { currentOnMessage?.({ data: { type: 'flushed', seq: 0 } }) })
+        }
       },
     }
     disconnect() {}
@@ -357,8 +367,8 @@ test('WebSocket AudioWorklet streaming sends PCM frames, stop control, and rende
   expect(sentMessages[0]).toBe(pcmBuf)
 
   fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
-  expect(onProcessing).toHaveBeenCalled()
-  expect(sentMessages[1]).toBe(JSON.stringify({ event: 'stop' }))
+  await waitFor(() => expect(onProcessing).toHaveBeenCalled())
+  await waitFor(() => expect(sentMessages[1]).toBe(JSON.stringify({ event: 'stop' })))
 
   wsRef.current?.onmessage?.({
     data: JSON.stringify({
