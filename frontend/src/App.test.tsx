@@ -345,3 +345,14 @@ test('manual typed follow-up command updates text overlay and enables redo', asy
   await waitFor(() => expect(screen.getByText('Sale 25%')).toBeInTheDocument())
 })
 
+test('left rail Media button opens the file picker when media slots are available', async () => {
+  mockServer()
+  render(<App />)
+  await screen.findByText('Drop photos or video clips here')
+  const fileInput = screen.getByLabelText('Upload photos or videos') as HTMLInputElement
+  const clickSpy = vi.spyOn(fileInput, 'click')
+  fireEvent.click(screen.getByRole('button', { name: 'Focus media library' }))
+  expect(clickSpy).toHaveBeenCalledTimes(1)
+})
+
+

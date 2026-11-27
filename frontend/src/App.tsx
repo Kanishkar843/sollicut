@@ -172,6 +172,7 @@ export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const voicePanelRef = useRef<HTMLDivElement>(null)
   const mediaPanelRef = useRef<HTMLElement>(null)
+  const manualCmdInputRef = useRef<HTMLInputElement>(null)
 
   const mediaAssets = project?.assets.filter((a) => a.media_type !== 'audio') ?? []
   const selectedClip = mediaAssets.find((a) => a.id === selectedClipId) ?? mediaAssets[0] ?? null
@@ -686,11 +687,15 @@ export default function App() {
 
   function jumpTab(tab: 'voice' | 'media' | InspectorTab) {
     if (tab === 'voice') {
-      voicePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      manualCmdInputRef.current?.focus()
+      voicePanelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
       return
     }
     if (tab === 'media') {
-      mediaPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      if (!busy && project && mediaAssets.length < 5) {
+        upload.current?.click()
+      }
+      mediaPanelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
       return
     }
     setActiveTab(tab)
@@ -1012,6 +1017,7 @@ export default function App() {
 
                 <form className="command-form" onSubmit={(e) => void applyTypedCommand(e)}>
                   <input
+                    ref={manualCmdInputRef}
                     type="text"
                     className="inspector-input"
                     aria-label="Manual command input"
