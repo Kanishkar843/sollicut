@@ -10,11 +10,23 @@ from .models import ProjectState
 from .storage import ROOT, project_dir
 
 FONT = ROOT / "assets/fonts/NotoSansTamil.ttf"
+_AMIX_NORMALIZE: bool | None = None
 
 
-def run(args: list[str], timeout: int = 180) -> str:
+def _amix_filter(inputs: int) -> str:
+    global _AMIX_NORMALIZE
+    if _AMIX_NORMALIZE is None:
+        try:
+            _AMIX_NORMALIZE = "normalize" in run(["ffmpeg", "-hide_banner", "-h", "filter=amix"], 10)
+        except Exception:
+            _AMIX_NORMALIZE = False
+    suffix = ":normalize=0" if _AMIX_NORMALIZE else ""
+    return f"amix=inputs={inputs}:duration=first{suffix}"
+
+
+def run(args: list[str], timeout: int = 180, cwd: Path | None = None) -> str:
     try:
-        result = subprocess.run(args, capture_output=True, timeout=timeout, check=False)
+        result = subprocess.run(args, capture_output=True, timeout=timeout, check=False, cwd=str(cwd) if cwd else None)
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("Media processing exceeded its time limit") from exc
     if result.returncode:
@@ -30,6 +42,8 @@ ACCENTS = {
     "lime": (215, 239, 65),
     "white": (245, 247, 244),
     "amber": (251, 191, 36),
+    "cyan": (63, 208, 227),
+    "rose": (244, 114, 182),
 }
 
 
@@ -41,21 +55,26 @@ def capabilities() -> dict:
         missing = [f for f in required if f not in filters]
         if "libx264" not in encoders or " aac " not in encoders:
             missing.append("H.264/AAC encoder")
-        return {"available": not missing and features.check_feature("raqm") and FONT.is_file(),
-                "missing": missing, "raqm": features.check_feature("raqm"),
-                "ffmpeg": run(["ffmpeg", "-version"], 10).splitlines()[0]}
+        has_raqm = features.check_feature("raqm")
+        return {
+            "available": not missing and FONT.is_file(),
+            "missing": missing,
+            "raqm": has_raqm,
+            "tamil_shaping": "raqm" if has_raqm else "basic_fallback",
+            "ffmpeg": run(["ffmpeg", "-version"], 10).splitlines()[0],
+        }
     except (OSError, RuntimeError) as exc:
         return {"available": False, "error": str(exc), "raqm": features.check_feature("raqm")}
 
 
 def overlay(text: str, path: Path, position: str = "end_card", accent: str = "lime") -> None:
-    if not features.check_feature("raqm"):
-        raise RuntimeError("Tamil shaping requires Pillow with libraqm")
+    layout = ImageFont.Layout.RAQM if features.check_feature("raqm") else ImageFont.Layout.BASIC
+    path.parent.mkdir(parents=True, exist_ok=True)
     canvas = Image.new("RGBA", (720, 1280))
     draw = ImageDraw.Draw(canvas)
-    # Fit whole words, shrinking only when needed. Tamil shaping uses RAQM.
+    # Fit whole words, shrinking only when needed. Tamil shaping uses RAQM when libraqm is installed.
     for size in range(56, 23, -2):
-        font = ImageFont.truetype(str(FONT), size, layout_engine=ImageFont.Layout.RAQM)
+        font = ImageFont.truetype(str(FONT), size, layout_engine=layout)
         lines, line = [], ""
         for word in text.split():
             candidate = f"{line} {word}".strip()
@@ -70,7 +89,12 @@ def overlay(text: str, path: Path, position: str = "end_card", accent: str = "li
     else:
         raise ValueError("Text is too wide; use shorter words")
     height = len(lines) * (size + 22) + 64
-    top = (1280 - height) // 2 if position == "center" else 1140 - height
+    if position == "center":
+        top = (1280 - height) // 2
+    elif position == "top":
+        top = 120
+    else:
+        top = 1140 - height
     bar_color = ACCENTS.get(accent, ACCENTS["lime"])
     draw.rounded_rectangle((36, top, 684, top + height), radius=28, fill=(14, 17, 15, 238))
     draw.rounded_rectangle((64, top + 24, 132, top + 30), radius=3, fill=bar_color)
@@ -177,7 +201,7 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
         manifest = scratch / "clips.txt"
         manifest.write_text("\n".join(f"file '{c.name}'" for c in clips), encoding="utf-8")
         joined = scratch / "joined.mp4"
-        run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "1", "-i", str(manifest), "-c", "copy", str(joined)])
+        run(["ffmpeg", "-v", "error", "-y", "-f", "concat", "-safe", "1", "-i", manifest.name, "-c", "copy", joined.name], cwd=scratch)
         args = ["ffmpeg", "-v", "error", "-y", "-i", str(joined)]
         audio = next((directory / a.path for a in project.assets if a.media_type == "audio"), ROOT / "assets/demo/music.wav")
         if settings.music_enabled:
@@ -196,7 +220,7 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
         if settings.keep_clip_audio and settings.music_enabled:
             filter_parts.append(
                 f"[1:a]volume={settings.music_volume},afade=t=out:st={max(0, settings.duration_seconds-.5)}:d=0.5[bgm];"
-                f"[0:a][bgm]amix=inputs=2:duration=first:normalize=0[aout]"
+                f"[0:a][bgm]{_amix_filter(2)}[aout]"
             )
         if filter_parts:
             args += ["-filter_complex_threads", "1", "-filter_complex", ";".join(filter_parts)]

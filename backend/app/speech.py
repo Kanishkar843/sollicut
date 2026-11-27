@@ -36,6 +36,33 @@ class FasterWhisperSpeechEngine:
         async with self.lock:
             return await asyncio.to_thread(self._transcribe, audio_path, language_hint)
 
+    async def transcribe_segments(self, audio_path: Path, language_hint: str | None = None) -> list[dict]:
+        if self.model is None:
+            raise RuntimeError(self.error or "Speech model is still loading; try again shortly.")
+        async with self.lock:
+            return await asyncio.to_thread(self._transcribe_segments, audio_path, language_hint)
+
+    def _transcribe_segments(self, path, language) -> list[dict]:
+        segments, _info = self.model.transcribe(
+            str(path),
+            language=language,
+            beam_size=5,
+            vad_filter=True,
+            condition_on_previous_text=False,
+        )
+        items = [
+            {
+                "start": round(float(segment.start), 2),
+                "end": round(float(segment.end), 2),
+                "text": segment.text.strip(),
+            }
+            for segment in segments
+            if segment.text and segment.text.strip()
+        ]
+        if not items:
+            raise ValueError("No speech detected in the clip audio for captions.")
+        return items
+
     def _transcribe(self, path, language):
         started = time.perf_counter()
         segments, info = self.model.transcribe(str(path), language=language, beam_size=5, vad_filter=True,

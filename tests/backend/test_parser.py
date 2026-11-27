@@ -63,7 +63,7 @@ def test_controls(text, kind):
     assert kind in operations(text)
 
 
-@pytest.mark.parametrize("text,count", [("", 3), ("add offer", 3), ("antha frame zoom", 3), ("make reel", 0), ("make reel", 6), ("fly to Mars", 3), ("rendu seconds", 3), ("create 120 seconds reel", 3), ("add text", 3), ('add text "../../secret"', 3), ("music and slow motion", 3), ("trim", 2), ("reorder", 2)])
+@pytest.mark.parametrize("text,count", [("", 3), ("add offer", 3), ("antha frame zoom", 3), ("make reel", 0), ("make reel", 6), ("fly to Mars", 3), ("rendu seconds", 3), ("create 120 seconds reel", 3), ("add text", 3), ('add text "../../secret"', 3), ("music and reverse", 3), ("trim", 2), ("reorder", 2)])
 def test_clarification(text, count):
     result = parse(text, count)
     assert result.requires_clarification
