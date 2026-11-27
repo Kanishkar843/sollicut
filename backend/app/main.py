@@ -14,6 +14,7 @@ from . import media, storage
 from .models import ApplyRequest, Asset, Job, ProjectState, ReelSettings, Snapshot
 from .parser import parse
 from .speech import FasterWhisperSpeechEngine
+from . import generation
 
 Image.MAX_IMAGE_PIXELS = 50_000_000
 speech = FasterWhisperSpeechEngine()
@@ -103,7 +104,7 @@ def health():
 
 @app.get("/api/capabilities")
 def capabilities():
-    return {"renderer": media_status, "speech": {"engine": "faster-whisper", "status": speech.status, "error": speech.error},
+    return {"generation": generation.status(), "renderer": media_status, "speech": {"engine": "faster-whisper", "status": speech.status, "error": speech.error},
             "limits": {"images": 5, "image_mb": 15, "voice_seconds": 30, "voice_mb": 20, "project_mb": 500}}
 
 
@@ -334,7 +335,7 @@ async def undo(project_id: str):
 
 
 @app.post("/api/projects/{project_id}/voice-command")
-async def voice(project_id: str, file: UploadFile = File(...), language_hint: str | None = Form(None)):
+async def voice(project_id: str, file: UploadFile = File(...), language_hint: str | None = Form(None), mode: str = Form("edit")):
     project = claim(project_id)
     result, path = None, None
     try:
@@ -363,6 +364,8 @@ async def voice(project_id: str, file: UploadFile = File(...), language_hint: st
             raise HTTPException(422, str(exc)) from None
         except (RuntimeError, OSError):
             raise HTTPException(503, speech.error or "Transcription failed. Check the recording and try again.") from None
+        if mode == "generate":
+            return {"generation_prompt": transcript.text, "transcript": transcript.text, "requires_confirmation": True}
         parsed = parse(transcript.text, max(3, sum(a.media_type in {"image", "video"} for a in project.assets)) if any(a.media_type in {"image", "video"} for a in project.assets) else 0, bool(project.current_output))
         result = dispatch(project, parsed)
         return {**result, "transcript": transcript.text, "language": transcript.language, "asr_seconds": transcript.elapsed_seconds}
@@ -390,6 +393,29 @@ async def video(project_id: str, request: Request):
     return FileResponse(storage.project_dir(project_id) / project.current_output, media_type="video/mp4",
         filename="SolliCut-reel.mp4" if request.url.path.endswith("download") else None,
         headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/projects/{project_id}/generate")
+async def generate_ad(project_id: str, body: ApplyRequest):
+    project = claim(project_id)
+    try:
+        if not generation.status()["configured"]:
+            raise HTTPException(503, "Key not set. Configure GEMINI_API_KEY on the server.")
+        quota(project_id, 100 * 1024 * 1024)
+        revision = project.next_revision
+        output = storage.project_dir(project.id) / "renders" / f"revision-{revision}.mp4"
+        await generation.generate(body.transcript, output)
+        await asyncio.to_thread(media.probe, output)
+        project.undo_stack.append(Snapshot(settings=project.settings.model_copy(), edit_history=list(project.edit_history), revision=project.current_render_revision, output=project.current_output))
+        project.current_output = f"renders/{output.name}"
+        project.current_render_revision = revision
+        project.next_revision += 1
+        storage.save(project)
+        return project
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(502, str(exc)) from None
+    finally:
+        busy.discard(project_id)
 
 
 frontend = storage.ROOT / "frontend/dist"

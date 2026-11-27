@@ -10,6 +10,8 @@ services:
       - sollicut_data:/data
     environment:
       SOLLICUT_DATA_DIR: /data
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      SOLLICUT_VIDEO_MODEL: ${SOLLICUT_VIDEO_MODEL:-gemini-omni-1.2-flash}
     init: true
     restart: unless-stopped
     stop_grace_period: 3m
