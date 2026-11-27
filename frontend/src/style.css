@@ -147,9 +147,29 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 
 /* Tabs & Inspector Fields */
 .inspector-card{padding:0;overflow:hidden;flex:1;display:flex;flex-direction:column}
-.inspector-tabs{display:grid;grid-template-columns:repeat(5,1fr);border-bottom:1px solid #252c22;background:#101310}
-.inspector-tab{padding:10px 4px;border:0;border-bottom:2px solid transparent;background:transparent;color:#95a38c;font-size:11.5px;font-weight:600}
+.inspector-tabs{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-bottom:1px solid #252c22;background:#101310}
+.inspector-tab{padding:9px 2px;border:0;border-bottom:2px solid transparent;background:transparent;color:#95a38c;font-size:11px;font-weight:600;white-space:nowrap}
 .inspector-tab.active{color:#d7ef41;border-bottom-color:#d7ef41;background:#151a14}
+.command-form{margin-top:8px;display:flex;gap:6px;align-items:center}
+.command-form .lime-button{padding:8px 11px;flex-shrink:0}
+.layer-header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.subpanel-divider{height:1px;background:#242b21;margin:4px 0}
+.caption-list,.catalog-list{display:flex;flex-direction:column;gap:6px}
+.caption-item{display:flex;gap:6px;align-items:center}
+.compact-select{background:#181d16;border:1px solid #313a2c;border-radius:8px;padding:8px;color:#edf2e8;font:inherit;font-size:12px}
+.kf-row{display:flex;align-items:center;gap:6px;background:#161b15;border:1px solid #283024;border-radius:8px;padding:6px 8px;font-size:11px;color:#b8c4ae}
+.kf-row label{display:flex;align-items:center;gap:4px;font-size:10.5px}
+.kf-row input{width:54px;background:#101310;border:1px solid #313a2c;border-radius:5px;padding:3px 5px;color:#edf2e8;font-size:11px}
+.kf-row button{margin-left:auto;padding:4px 6px}
+.catalog-card{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border-radius:8px;background:#161b15;border:1px solid #283024}
+.catalog-card strong{display:block;font-size:12px;color:#e7ede2}
+.catalog-card span{display:block;font-size:10.5px;color:#94a18a;margin-top:2px}
+.tl-clip-slot{flex:1;min-width:0;height:100%;display:flex;align-items:center;gap:3px}
+.tl-clip-slot .tl-clip{flex:1}
+.tl-transition-chip{width:20px;height:24px;flex-shrink:0;border-radius:5px;border:1px solid #44562a;background:#1c2416;color:#d7ef41;display:grid;place-items:center}
+.tl-overlay-pill.active{box-shadow:0 0 0 2px #fff}
+.tl-caption-pill{position:absolute;top:3px;bottom:3px;border:1px solid #3c5459;border-radius:6px;background:#152629;color:#bfeff6;padding:0 8px;display:flex;align-items:center;font-size:10.5px;overflow:hidden}
+.tl-caption-pill span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .inspector-body{padding:13px 14px;flex:1}
 .panel-fields{display:flex;flex-direction:column;gap:10px}
 .field-label{font-size:11.5px;font-weight:600;color:#b8c4ae;display:block}

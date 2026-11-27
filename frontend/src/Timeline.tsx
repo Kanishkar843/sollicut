@@ -1,7 +1,8 @@
-import { ChevronLeft, ChevronRight, Film, Music2, Plus, Type, Volume2, VolumeX } from 'lucide-react'
-import type { Asset, Project } from './api'
+import { useState } from 'react'
+import { Captions, ChevronLeft, ChevronRight, Film, Music2, Plus, Scissors, Sparkles, Type, Volume2, VolumeX } from 'lucide-react'
+import type { Asset, Project, TextLayer } from './api'
 
-type Tab = 'voice' | 'media' | 'text' | 'audio' | 'look' | 'trim' | 'ai'
+type Tab = 'voice' | 'media' | 'text' | 'audio' | 'look' | 'trim' | 'fx' | 'assets' | 'ai'
 
 type Props = {
   project: Project
@@ -11,6 +12,8 @@ type Props = {
   busy: boolean
   onSelectClip: (id: string) => void
   onMoveClip: (index: number, delta: -1 | 1) => void
+  onReorderIds?: (orderedIds: string[]) => void
+  onSelectTextLayer?: (layerId: string) => void
   onAddMedia: () => void
   onToggleMusicMute: () => void
   onJumpTab: (tab: Tab) => void
@@ -34,22 +37,40 @@ export default function Timeline({
   busy,
   onSelectClip,
   onMoveClip,
+  onReorderIds,
+  onSelectTextLayer,
   onAddMedia,
   onToggleMusicMute,
   onJumpTab,
   onSeek,
 }: Props) {
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
   const total = project.settings?.duration_seconds ?? 15
   const zoomStyle = project.settings?.zoom_style ?? 'smooth'
   const musicEnabled = project.settings?.music_enabled ?? true
   const musicVolume = project.settings?.music_volume ?? 0.2
   const keepClipAudio = project.settings?.keep_clip_audio ?? false
+  const transitionStyle = project.settings?.transition_style ?? 'none'
+  const filterPreset = project.settings?.filter_preset ?? 'none'
   const playheadPct = Math.min(100, Math.max(0, (currentTime / total) * 100))
-  const overlayText = project.settings?.overlay_text ?? null
-  const overlayPos = project.settings?.overlay_position ?? 'end_card'
-  const endCardStart = Math.max(0, total - 4)
-  const overlayLeftPct = overlayPos === 'end_card' ? (endCardStart / total) * 100 : 0
-  const overlayWidthPct = overlayPos === 'end_card' ? ((total - endCardStart) / total) * 100 : 100
+
+  const allLayers: TextLayer[] = project.settings?.text_layers?.length
+    ? project.settings.text_layers
+    : project.settings?.overlay_text
+      ? [
+          {
+            id: project.settings?.active_text_id ?? 'legacy-overlay',
+            text: project.settings.overlay_text,
+            position: project.settings.overlay_position ?? 'end_card',
+            color: project.settings.overlay_color ?? 'lime',
+            animation: 'none',
+            is_caption: false,
+          },
+        ]
+      : []
+
+  const promoLayers = allLayers.filter((l) => !l.is_caption)
+  const captionLayers = allLayers.filter((l) => l.is_caption)
   const audioAsset = project.assets.find((a) => a.media_type === 'audio')
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(total * f * 10) / 10)
   const slotSec = mediaAssets.length ? total / mediaAssets.length : total
@@ -61,6 +82,47 @@ export default function Timeline({
     onSeek(ratio * total)
   }
 
+  function layerSpanPct(layer: TextLayer): { left: number; width: number } {
+    if (layer.start_time != null || layer.end_time != null) {
+      const s = Math.max(0, layer.start_time ?? 0)
+      const e = Math.min(total, layer.end_time ?? total)
+      return { left: (s / total) * 100, width: Math.max(10, ((e - s) / total) * 100) }
+    }
+    if (layer.clip_index != null && mediaAssets.length > 0) {
+      const idx = Math.min(mediaAssets.length - 1, Math.max(0, layer.clip_index - 1))
+      const w = 100 / mediaAssets.length
+      return { left: idx * w, width: w }
+    }
+    if (layer.position === 'end_card' && !layer.is_caption) {
+      const endCardStart = Math.max(0, total - 4)
+      return { left: (endCardStart / total) * 100, width: ((total - endCardStart) / total) * 100 }
+    }
+    return { left: 0, width: 100 }
+  }
+
+  function handleDrop(targetIndex: number) {
+    if (dragIndex === null || dragIndex === targetIndex || !onReorderIds || busy) {
+      setDragIndex(null)
+      return
+    }
+    const ordered = [...mediaAssets]
+    const [moved] = ordered.splice(dragIndex, 1)
+    ordered.splice(targetIndex, 0, moved)
+    setDragIndex(null)
+    onReorderIds(ordered.map((a) => a.id))
+  }
+
+  const audioFlags = [
+    project.settings?.audio_denoise ? 'Denoise' : null,
+    project.settings?.audio_normalize ? 'Norm' : null,
+    project.settings?.voice_enhance ? 'Voice+' : null,
+    project.settings?.vocal_isolation && project.settings.vocal_isolation !== 'none'
+      ? project.settings.vocal_isolation === 'vocals_only'
+        ? 'Vocals'
+        : 'Instr'
+      : null,
+  ].filter(Boolean)
+
   return (
     <section className="timeline-dock" aria-label="Reel timeline">
       <div className="timeline-header">
@@ -71,8 +133,11 @@ export default function Timeline({
         <div className="timeline-legend">
           <span>{mediaAssets.length} clip{mediaAssets.length === 1 ? '' : 's'}</span>
           <span>{zoomStyle === 'smooth' ? 'Smooth zoom' : 'Static'}</span>
+          {transitionStyle !== 'none' && <span>Transition: {transitionStyle}</span>}
+          {filterPreset !== 'none' && <span>Filter: {filterPreset}</span>}
           <span>{musicEnabled ? `Music ${Math.round(musicVolume * 100)}%` : 'Music muted'}</span>
           {keepClipAudio && <span>Clip audio on</span>}
+          {project.settings?.narration_enabled && <span>TTS on</span>}
         </div>
       </div>
 
@@ -102,6 +167,18 @@ export default function Timeline({
               aria-label="Edit text track"
             >
               <Type size={11} />
+            </button>
+          </div>
+          <div className="track-label">
+            <span className="track-name"><Captions size={13} />Captions</span>
+            <button
+              type="button"
+              className="track-ctrl"
+              onClick={() => onJumpTab('text')}
+              title="Auto-captions & TTS"
+              aria-label="Edit captions and TTS track"
+            >
+              <Sparkles size={11} />
             </button>
           </div>
           <div className="track-label">
@@ -136,6 +213,7 @@ export default function Timeline({
             </div>
           )}
 
+          {/* Track 1: Multi-clip Media track with drag/drop + transition badges */}
           <div className="track-row media-track">
             {mediaAssets.length === 0 ? (
               <div className="track-empty">Upload photos or video clips in Your media to populate the timeline</div>
@@ -144,45 +222,66 @@ export default function Timeline({
                 const selected = asset.id === selectedClipId
                 const trimmed = asset.media_type === 'video' && ((asset.trim_start ?? 0) > 0 || asset.trim_end != null)
                 const assetUrl = `/api/projects/${project.id}/assets/${asset.id}`
+                const hasFx =
+                  (asset.cutout_mode && asset.cutout_mode !== 'none') ||
+                  asset.stabilize ||
+                  (asset.keyframes && asset.keyframes.length > 0) ||
+                  (asset.speed && Math.abs(asset.speed - 1) > 0.01)
                 return (
-                  <div
-                    key={asset.id}
-                    className={`tl-clip ${selected ? 'selected' : ''}`}
-                    style={{ flex: 1 }}
-                    onClick={() => onSelectClip(asset.id)}
-                  >
-                    <div className="tl-clip-thumb" aria-hidden="true">
-                      {asset.media_type === 'video' ? (
-                        <video muted preload="metadata" src={assetUrl} />
-                      ) : (
-                        <img src={assetUrl} alt="" />
+                  <div key={asset.id} className="tl-clip-slot">
+                    <div
+                      draggable={!busy && mediaAssets.length > 1}
+                      onDragStart={() => setDragIndex(index)}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleDrop(index)}
+                      className={`tl-clip ${selected ? 'selected' : ''}`}
+                      onClick={() => onSelectClip(asset.id)}
+                    >
+                      <div className="tl-clip-thumb" aria-hidden="true">
+                        {asset.media_type === 'video' ? (
+                          <video muted preload="metadata" src={assetUrl} />
+                        ) : (
+                          <img src={assetUrl} alt="" />
+                        )}
+                      </div>
+                      <div className="tl-clip-info">
+                        <strong>#{index + 1} {asset.filename}</strong>
+                        <span>
+                          {slotSec.toFixed(1)}s
+                          {trimmed ? ` · ${(asset.trim_start ?? 0).toFixed(1)}–${(asset.trim_end ?? asset.duration_seconds ?? slotSec).toFixed(1)}s` : ''}
+                          {hasFx ? ' · FX' : ''}
+                        </span>
+                      </div>
+                      {mediaAssets.length > 1 && (
+                        <div className="tl-clip-move" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            aria-label={`Move ${asset.filename} earlier`}
+                            disabled={busy || index === 0}
+                            onClick={() => onMoveClip(index, -1)}
+                          >
+                            <ChevronLeft size={12} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Move ${asset.filename} later`}
+                            disabled={busy || index === mediaAssets.length - 1}
+                            onClick={() => onMoveClip(index, 1)}
+                          >
+                            <ChevronRight size={12} />
+                          </button>
+                        </div>
                       )}
                     </div>
-                    <div className="tl-clip-info">
-                      <strong>#{index + 1} {asset.filename}</strong>
-                      <span>
-                        {slotSec.toFixed(1)}s{trimmed ? ` · ${(asset.trim_start ?? 0).toFixed(1)}–${(asset.trim_end ?? asset.duration_seconds ?? slotSec).toFixed(1)}s` : ''}
-                      </span>
-                    </div>
-                    {mediaAssets.length > 1 && (
-                      <div className="tl-clip-move" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          type="button"
-                          aria-label={`Move ${asset.filename} earlier`}
-                          disabled={busy || index === 0}
-                          onClick={() => onMoveClip(index, -1)}
-                        >
-                          <ChevronLeft size={12} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`Move ${asset.filename} later`}
-                          disabled={busy || index === mediaAssets.length - 1}
-                          onClick={() => onMoveClip(index, 1)}
-                        >
-                          <ChevronRight size={12} />
-                        </button>
-                      </div>
+                    {transitionStyle !== 'none' && index < mediaAssets.length - 1 && (
+                      <button
+                        type="button"
+                        className="tl-transition-chip"
+                        title={`Transition: ${transitionStyle}`}
+                        onClick={() => onJumpTab('look')}
+                      >
+                        <Scissors size={10} />
+                      </button>
                     )}
                   </div>
                 )
@@ -190,17 +289,28 @@ export default function Timeline({
             )}
           </div>
 
+          {/* Track 2: Persistent Multi-Layer Text track */}
           <div className="track-row overlay-track">
-            {overlayText ? (
-              <button
-                type="button"
-                className="tl-overlay-pill"
-                style={{ left: `${overlayLeftPct}%`, width: `${overlayWidthPct}%` }}
-                onClick={() => onJumpTab('text')}
-              >
-                <span>{overlayText}</span>
-                <small>{overlayPos === 'end_card' ? 'End card' : overlayPos}</small>
-              </button>
+            {promoLayers.length > 0 ? (
+              promoLayers.map((layer) => {
+                const { left, width } = layerSpanPct(layer)
+                const isActive = layer.id === project.settings?.active_text_id
+                return (
+                  <button
+                    key={layer.id}
+                    type="button"
+                    className={`tl-overlay-pill ${isActive ? 'active' : ''}`}
+                    style={{ left: `${left}%`, width: `${Math.min(100 - left, width)}%` }}
+                    onClick={() => {
+                      onSelectTextLayer?.(layer.id)
+                      onJumpTab('text')
+                    }}
+                  >
+                    <span>{layer.text}</span>
+                    <small>{layer.clip_index ? `Clip ${layer.clip_index}` : layer.position === 'end_card' ? 'End card' : layer.position}</small>
+                  </button>
+                )
+              })
             ) : (
               <button type="button" className="track-add-hint" onClick={() => onJumpTab('text')}>
                 + Add promotional text overlay (or say “Last la 20 percent offer nu text podu”)
@@ -208,14 +318,40 @@ export default function Timeline({
             )}
           </div>
 
+          {/* Track 3: Captions & Offline TTS Narration track */}
+          <div className="track-row captions-track">
+            {captionLayers.length > 0 ? (
+              captionLayers.map((cap) => {
+                const { left, width } = layerSpanPct(cap)
+                return (
+                  <button
+                    key={cap.id}
+                    type="button"
+                    className="tl-caption-pill"
+                    style={{ left: `${left}%`, width: `${Math.min(100 - left, Math.max(12, width))}%` }}
+                    onClick={() => onJumpTab('text')}
+                  >
+                    <span>{cap.text}</span>
+                  </button>
+                )
+              })
+            ) : (
+              <button type="button" className="track-add-hint" onClick={() => onJumpTab('text')}>
+                {project.settings?.narration_enabled
+                  ? 'TTS Narration active · Click to edit captions or voiceover'
+                  : '+ Auto-captions & offline Tamil/English TTS narration'}
+              </button>
+            )}
+          </div>
+
+          {/* Track 4: Audio & DSP track */}
           <div className="track-row audio-track">
             <button type="button" className={`tl-audio-bar ${!musicEnabled ? 'muted' : ''}`} onClick={() => onJumpTab('audio')}>
               <div className="tl-audio-meta">
                 <span>
-                  {musicEnabled
-                    ? audioAsset?.filename ?? 'Original demo music'
-                    : 'Background music muted'}
+                  {musicEnabled ? audioAsset?.filename ?? 'Original demo music' : 'Background music muted'}
                   {keepClipAudio ? ' + Clip audio' : ''}
+                  {audioFlags.length ? ` · ${audioFlags.join(' · ')}` : ''}
                 </span>
               </div>
               <div className="tl-waveform" aria-hidden="true">
