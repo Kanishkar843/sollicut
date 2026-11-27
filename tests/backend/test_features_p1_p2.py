@@ -247,6 +247,24 @@ def test_aspect_ratio_switch_and_inbuilt_soothing_music(api_client, tmp_path):
     assert (vstream["width"], vstream["height"]) == (1280, 720)
 
 
+def test_uploading_video_with_audio_auto_enables_clip_audio(api_client, tmp_path):
+    vid_path = tmp_path / "spoken.mp4"
+    _make_video(vid_path, duration=2.0, with_audio=True, color="#112233")
+    pid = api_client.post("/api/projects").json()["id"]
+    root = f"/api/projects/{pid}"
+    up = api_client.post(f"{root}/assets", files={"file": ("spoken.mp4", vid_path.read_bytes(), "video/mp4")})
+    assert up.status_code == 200
+    assert up.json()["settings"]["keep_clip_audio"] is True
+
+    # Render without manually toggling keep_clip_audio; output retains audible audio track
+    edit = api_client.post(f"{root}/edit", json={"duration_seconds": 3, "render": True})
+    assert edit.status_code == 200
+    _wait_job(api_client, edit.json()["job_id"])
+    rendered = api_client.get(root).json()
+    out_file = storage.project_dir(pid) / rendered["current_output"]
+    assert any(s["codec_type"] == "audio" for s in media.probe(out_file)["streams"])
+
+
 def test_undo_redo_ten_snapshot_cap(api_client):
     pid = api_client.post("/api/projects").json()["id"]
     root = f"/api/projects/{pid}"

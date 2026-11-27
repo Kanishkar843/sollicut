@@ -42,8 +42,9 @@ def _amix_filter(inputs: int) -> str:
             _AMIX_NORMALIZE = "normalize" in run(["ffmpeg", "-hide_banner", "-h", "filter=amix"], 10)
         except Exception:
             _AMIX_NORMALIZE = False
-    suffix = ":normalize=0" if _AMIX_NORMALIZE else ""
-    return f"amix=inputs={inputs}:duration=first{suffix}"
+    if _AMIX_NORMALIZE:
+        return f"amix=inputs={inputs}:duration=first:normalize=0"
+    return f"amix=inputs={inputs}:duration=first,volume={inputs}"
 
 
 def probe(path: Path) -> dict:
@@ -325,7 +326,7 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
                     clip_args += ["-f", "lavfi", "-t", f"{slot_seconds:.3f}", "-i", f"color=c=0x0e110f:s={out_w}x{out_h}:r=30"]
 
                 clip_vol = round(float(settings.clip_audio_volume) * float(asset.volume or 1.0), 3)
-                af_parts = [f"volume={clip_vol}"] + _atempo_chain(eff_speed) + ["aresample=44100", "pan=mono|c0=c0"]
+                af_parts = [f"volume={clip_vol}"] + _atempo_chain(eff_speed) + ["aformat=sample_rates=44100:channel_layouts=mono", "asetpts=PTS-STARTPTS"]
                 af_str = ",".join(af_parts)
 
                 if use_chromakey:
@@ -347,6 +348,7 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
                     if need_audio_track:
                         if has_audio:
                             clip_args += [
+                                "-map", "0:v:0", "-map", "0:a:0",
                                 "-vf", vf, "-frames:v", str(frames),
                                 "-af", af_str,
                                 "-t", f"{slot_seconds:.3f}",

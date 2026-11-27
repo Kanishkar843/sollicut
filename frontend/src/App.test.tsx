@@ -471,4 +471,44 @@ test('supports multiple aspect ratios, inbuilt soothing music, and Your music up
   )
 })
 
+test('uploaded video clip can be previewed unmuted even before first render', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => ({
+      ok: true,
+      json: async () =>
+        String(input).includes('capabilities')
+          ? { generation: { configured: false, status: 'key_not_set', model: 'gemini-omni-1.2-flash' }, renderer: { available: true }, speech: { status: 'ready', error: null } }
+          : {
+              id: 'project',
+              assets: [{ id: 'vid1', filename: 'talking.mp4', media_type: 'video', duration_seconds: 4 }],
+              current_output: null,
+              current_render_revision: 1,
+              undo_stack: [],
+              settings: {
+                duration_seconds: 15,
+                aspect_ratio: '9:16',
+                width: 720,
+                height: 1280,
+                zoom_style: 'smooth',
+                music_enabled: true,
+                music_volume: 0.2,
+                keep_clip_audio: true,
+                clip_audio_volume: 0.7,
+                fit_mode: 'contain',
+                overlay_text: null,
+                overlay_position: 'end_card',
+                overlay_color: 'lime',
+                brightness: 0,
+              },
+            },
+    })),
+  )
+  render(<App />)
+  const clipVideo = (await screen.findByLabelText('Selected clip preview')) as HTMLVideoElement
+  expect(clipVideo).toHaveAttribute('src', '/api/projects/project/assets/vid1')
+  expect(clipVideo.muted).toBe(false)
+  expect(screen.getByRole('button', { name: 'Play preview' })).not.toBeDisabled()
+})
+
 

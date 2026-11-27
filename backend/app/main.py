@@ -217,6 +217,7 @@ async def upload_asset(project_id: str, file: UploadFile = File(...)):
                 asset.duration_seconds = float(info["format"]["duration"])
                 if not 0 < asset.duration_seconds <= 120 or asset.width * asset.height > 8_500_000:
                     raise ValueError("Video too large")
+                has_video_audio = any(s.get("codec_type") == "audio" for s in info.get("streams", []))
             except (RuntimeError, KeyError, ValueError, StopIteration):
                 raise HTTPException(422, "Use a valid video up to 120 seconds and 4K resolution") from None
         else:
@@ -234,6 +235,8 @@ async def upload_asset(project_id: str, file: UploadFile = File(...)):
             project.undo_stack = (project.undo_stack + [_snapshot(project)])[-10:]
             project.redo_stack.clear()
         project.assets.append(asset)
+        if is_video and locals().get("has_video_audio") and not any(op.type == "set_clip_audio" for op in project.edit_history):
+            project.settings.keep_clip_audio = True
         storage.save(project)
         return project
     except BaseException:

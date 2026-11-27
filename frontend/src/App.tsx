@@ -692,7 +692,8 @@ export default function App() {
   function seekTo(seconds: number) {
     const el = videoRef.current
     if (!el) return
-    const clamped = Math.max(0, Math.min(project?.settings?.duration_seconds ?? 15, seconds))
+    const limit = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : (project?.settings?.duration_seconds ?? 15)
+    const clamped = Math.max(0, Math.min(limit, seconds))
     el.currentTime = clamped
     setCurrentTime(clamped)
   }
@@ -741,6 +742,9 @@ export default function App() {
   }
 
   const totalDur = project?.settings?.duration_seconds ?? 15
+  const previewClipVideo = !project?.current_output && selectedClip?.media_type === 'video' ? selectedClip : null
+  const hasPreviewVideo = Boolean(project?.current_output || previewClipVideo)
+  const previewTotalDur = project?.current_output ? totalDur : (previewClipVideo?.duration_seconds ?? totalDur)
   const audioAsset = project?.assets.find((a) => a.media_type === 'audio')
   const speechReady = caps?.speech.status === 'ready'
   const aspectChoices = Array.isArray(catalog?.aspect_ratios) && catalog.aspect_ratios.length > 0 ? catalog.aspect_ratios : ASPECT_RATIO_OPTIONS
@@ -977,7 +981,13 @@ export default function App() {
               <div className="preview-stage">
                 <div className="stage-header">
                   <span className="eyebrow">REEL PREVIEW</span>
-                  <span className="preview-label">{project?.current_output ? `READY · REV ${project.current_render_revision}` : 'NO RENDER YET'}</span>
+                  <span className="preview-label">
+                    {project?.current_output
+                      ? `READY · REV ${project.current_render_revision}`
+                      : previewClipVideo
+                        ? `CLIP PREVIEW · ${previewClipVideo.filename}`
+                        : 'NO RENDER YET'}
+                  </span>
                 </div>
 
                 <div className="preview-canvas">
@@ -991,8 +1001,23 @@ export default function App() {
                         key={`${project.current_render_revision}-${project.current_output}`}
                         controls
                         playsInline
+                        muted={mutedPreview}
                         src={`/api/projects/${project.id}/video?revision=${project.current_render_revision}`}
                         aria-label="Rendered reel preview"
+                        onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                        onPlay={() => setPlaying(true)}
+                        onPause={() => setPlaying(false)}
+                        onEnded={() => setPlaying(false)}
+                      />
+                    ) : previewClipVideo && project ? (
+                      <video
+                        ref={videoRef}
+                        key={previewClipVideo.id}
+                        controls
+                        playsInline
+                        muted={mutedPreview}
+                        src={`/api/projects/${project.id}/assets/${previewClipVideo.id}`}
+                        aria-label="Selected clip preview"
                         onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                         onPlay={() => setPlaying(true)}
                         onPause={() => setPlaying(false)}
@@ -1023,16 +1048,16 @@ export default function App() {
                 </div>
 
                 <div className="transport-bar" aria-label="Preview playback controls">
-                  <button type="button" className="transport-btn" disabled={!project?.current_output} onClick={toggleMutePreview} aria-label={mutedPreview ? 'Unmute preview' : 'Mute preview'}>
+                  <button type="button" className="transport-btn" disabled={!hasPreviewVideo} onClick={toggleMutePreview} aria-label={mutedPreview ? 'Unmute preview' : 'Mute preview'}>
                     {mutedPreview ? <VolumeX size={14} /> : <Volume2 size={14} />}
                   </button>
-                  <button type="button" className="transport-btn" disabled={!project?.current_output} onClick={() => seekTo(0)} aria-label="Jump to start">
+                  <button type="button" className="transport-btn" disabled={!hasPreviewVideo} onClick={() => seekTo(0)} aria-label="Jump to start">
                     <SkipBack size={14} />
                   </button>
-                  <button type="button" className="transport-btn primary-play" disabled={!project?.current_output} onClick={togglePlay} aria-label={playing ? 'Pause preview' : 'Play preview'}>
+                  <button type="button" className="transport-btn primary-play" disabled={!hasPreviewVideo} onClick={togglePlay} aria-label={playing ? 'Pause preview' : 'Play preview'}>
                     {playing ? <Pause size={15} /> : <Play size={15} />}
                   </button>
-                  <button type="button" className="transport-btn" disabled={!project?.current_output} onClick={() => seekTo(Math.max(0, totalDur - 4))} aria-label="Jump to offer end card">
+                  <button type="button" className="transport-btn" disabled={!hasPreviewVideo} onClick={() => seekTo(Math.max(0, previewTotalDur - 4))} aria-label="Jump to offer end card">
                     <SkipForward size={14} />
                   </button>
                   <input
@@ -1040,16 +1065,16 @@ export default function App() {
                     className="transport-scrub"
                     aria-label="Seek reel time"
                     min={0}
-                    max={totalDur}
+                    max={previewTotalDur}
                     step={0.1}
-                    value={Math.min(currentTime, totalDur)}
-                    disabled={!project?.current_output}
+                    value={Math.min(currentTime, previewTotalDur)}
+                    disabled={!hasPreviewVideo}
                     onChange={(e) => seekTo(Number(e.target.value))}
                   />
                   <span className="timecode">
-                    {formatTime(currentTime)} / {formatTime(totalDur)}
+                    {formatTime(currentTime)} / {formatTime(previewTotalDur)}
                   </span>
-                  <button type="button" className="transport-btn" disabled={!project?.current_output} onClick={requestPreviewFullscreen} aria-label="Fullscreen preview">
+                  <button type="button" className="transport-btn" disabled={!hasPreviewVideo} onClick={requestPreviewFullscreen} aria-label="Fullscreen preview">
                     <Maximize2 size={14} />
                   </button>
                 </div>
