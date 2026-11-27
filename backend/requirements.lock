@@ -35,7 +35,9 @@ pypdf==7.2.0
 pytest==9.2.0
 python-multipart==0.0.34
 PyYAML==6.0.4
+rapidfuzz==3.14.6
 reportlab==5.1.2
+sherpa-onnx==2.0.3
 starlette==1.10.0
 tokenizers==0.23.3
 tqdm==4.70.1
@@ -43,3 +45,4 @@ truststore==0.10.5
 typing-inspection==0.4.5
 typing_extensions==4.16.0
 uvicorn==0.54.0
+websockets==16.0

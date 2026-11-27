@@ -2,7 +2,10 @@
 
 Project code uses the MIT license. Dependencies retain their own licenses.
 
-- faster-whisper, Whisper and CTranslate2: MIT; upstream model and code notices apply.
+- faster-whisper, Systran/faster-whisper-small, Whisper and CTranslate2: MIT; upstream model and code notices apply.
+- sherpa-onnx (v2.0.3): Apache License 2.0 (Next-gen Kaldi / k2-fsa).
+- AI4Bharat IndicConformer Tamil & parismitaglobalsolutions/indicconformer-sherpa-onnx: MIT / Apache-2.0 upstream model and ONNX packaging notices apply.
+- RapidFuzz: MIT License.
 - FastAPI, React, Vite, Tailwind: MIT. Lucide: ISC. Pillow: HPND. Python: PSF. ReportLab: BSD.
 - Noto Sans Tamil: SIL OFL 1.1. Full license retained in assets/fonts/OFL.txt; frontend copy is the same font.
 - FFmpeg: licensing depends on build options. The tested Debian binary is GPL-enabled, including libx264. See docs/FFMPEG_BUILD.txt for the actual version/configuration. Do not describe the shipped binary as LGPL-only. Debian source and license information: https://packages.debian.org/bookworm/ffmpeg and https://ffmpeg.org/legal.html
