@@ -42,6 +42,7 @@ type VoiceButtonProps = {
   disabled: boolean
   projectId?: string
   mode?: AsrMode
+  previewOnly?: boolean
   onModeChange?: (mode: AsrMode) => void
   onStreamResult?: (command: Command) => void
   onProcessing?: () => void
@@ -54,6 +55,7 @@ export default function VoiceButton({
   disabled,
   projectId,
   mode,
+  previewOnly = false,
   onModeChange,
   onStreamResult,
   onProcessing,
@@ -77,6 +79,7 @@ export default function VoiceButton({
       void start({
         projectId,
         mode: activeMode,
+        previewOnly,
         onStreamResult,
         onProcessing,
         onAudio,

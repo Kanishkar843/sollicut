@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   AudioLines,
-  Check,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -30,7 +29,9 @@ import {
 import GeneratePanel from './GeneratePanel'
 import Timeline from './Timeline'
 import VoiceButton from './VoiceButton'
-import { api, operationLabel, type AsrMode, type Capabilities, type Command, type Parsed, type Project } from './api'
+import { TranscriptReview } from './components/voice/TranscriptReview'
+import { MicrophoneSettings } from './components/voice/MicrophoneSettings'
+import { api, type AsrMode, type Capabilities, type Command, type Project } from './api'
 
 export function validateMedia(files: File[], count: number): string | null {
   if (files.length + count > 5) return 'Choose up to 5 photos or video clips in total.'
@@ -61,14 +62,17 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [stage, setStage] = useState('Ready')
   const [error, setError] = useState('')
-  const [parsed, setParsed] = useState<Parsed | null>(null)
-  const [secondaryTranscript, setSecondaryTranscript] = useState<string | null>(null)
   const [asrMode, setAsrMode] = useState<AsrMode>('tanglish')
   const [resetting, setResetting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<InspectorTab>('text')
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [showPrivacy, setShowPrivacy] = useState(false)
+  // Phase 8: pending voice command awaiting explicit user approval
+  const [pendingResult, setPendingResult] = useState<Command | null>(null)
+  const [applyingResult, setApplyingResult] = useState(false)
+  const [showMicSettings, setShowMicSettings] = useState(false)
+  const [micDeviceId, setMicDeviceId] = useState('')
 
   // Video preview transport state
   const [playing, setPlaying] = useState(false)
@@ -218,24 +222,74 @@ export default function App() {
   }
 
   function handleVoiceResult(result: Command) {
-    setParsed(result.parsed_command)
-    setSecondaryTranscript(result.secondary_transcript ?? null)
+    // Phase 8: Store result for user review; do NOT auto-apply operations.
+    setBusy(false)
     if (result.parsed_command.requires_clarification) {
       setStage('A little more detail')
-      setBusy(false)
-    } else if (result.job_id) {
-      setStage('Rendering reel')
-      setJobId(result.job_id)
+      setPendingResult(result)
     } else {
-      if (result.project) setProject(result.project)
-      if (result.download_url) {
-        const a = document.createElement('a')
-        a.href = result.download_url
-        a.download = 'SolliCut-reel.mp4'
-        a.click()
+      setStage('Review and apply')
+      setPendingResult(result)
+    }
+  }
+
+  /**
+   * Phase 8 — Called when user clicks "Apply" / "Apply all" in TranscriptReview.
+   * Executes the previewed or edited transcript on the server.
+   */
+  async function applyPendingResult(result: Command, editedTranscript?: string) {
+    if (!project) return
+    setApplyingResult(true)
+    setBusy(true)
+    setError('')
+    try {
+      let executed = result
+      if (editedTranscript || (!result.job_id && !result.project && !result.download_url)) {
+        setStage('Applying voice command')
+        const useDual = !editedTranscript && Boolean(result.secondary_transcript)
+        executed = await api<Command>(`/projects/${project.id}/apply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcript: editedTranscript ?? result.parsed_command.original_transcript,
+            ...(useDual
+              ? {
+                  secondary_transcript: result.secondary_transcript,
+                  asr_mode: result.asr_mode ?? asrMode,
+                }
+              : {}),
+          }),
+        })
       }
-      setStage(result.download_url ? 'Ready to download' : 'Previous edit restored')
+
+      if (executed.parsed_command.requires_clarification) {
+        setPendingResult(executed)
+        setStage('A little more detail')
+        setBusy(false)
+        return
+      }
+
+      setPendingResult(null)
+      if (executed.job_id) {
+        setStage('Rendering reel')
+        setJobId(executed.job_id)
+      } else {
+        if (executed.project) setProject(executed.project)
+        if (executed.download_url) {
+          const a = document.createElement('a')
+          a.href = executed.download_url
+          a.download = 'SolliCut-reel.mp4'
+          a.click()
+        }
+        setStage(executed.download_url ? 'Ready to download' : 'Previous edit restored')
+        setBusy(false)
+      }
+    } catch (e) {
+      setError((e as Error).message)
+      setStage('Review and apply')
       setBusy(false)
+    } finally {
+      setApplyingResult(false)
     }
   }
 
@@ -244,12 +298,12 @@ export default function App() {
     setBusy(true)
     setError('')
     setStage('Processing speech')
-    setParsed(null)
-    setSecondaryTranscript(null)
+    setPendingResult(null)
     try {
       const form = new FormData()
       form.append('file', blob, `command.${extension}`)
       form.append('asr_mode', asrMode)
+      form.append('auto_apply', 'false')
       if (asrMode !== 'tanglish') form.append('language_hint', asrMode)
       const result = await api<Command>(`/projects/${project.id}/voice-command`, { method: 'POST', body: form })
       handleVoiceResult(result)
@@ -300,7 +354,7 @@ export default function App() {
     setError('')
     try {
       setProject(await api<Project>(`/projects/${project.id}/undo`, { method: 'POST' }))
-      setParsed(null)
+      setPendingResult(null)
       setStage('Previous edit restored')
     } catch (e) {
       setError((e as Error).message)
@@ -317,7 +371,7 @@ export default function App() {
       const p = await api<Project>('/projects', { method: 'POST' })
       setProject(p)
       localStorage.setItem('sollicut-project', p.id)
-      setParsed(null)
+      setPendingResult(null)
       setSelectedClipId(null)
       setError('')
       setStage('Ready')
@@ -752,19 +806,28 @@ export default function App() {
                     <span className="eyebrow">VOICE DIRECTOR</span>
                     <h2>{project?.current_output ? 'What would you change?' : 'What should we create?'}</h2>
                   </div>
+                  <button
+                    type="button"
+                    className="transcript-review__icon-btn"
+                    aria-label="Microphone settings"
+                    aria-expanded={showMicSettings}
+                    onClick={() => setShowMicSettings((v) => !v)}
+                  >
+                    <Mic size={14} />
+                  </button>
                 </div>
 
                 <VoiceButton
                   disabled={busy || mediaAssets.length < 1 || !speechReady}
                   projectId={project?.id}
                   mode={asrMode}
+                  previewOnly={true}
                   onModeChange={setAsrMode}
                   onProcessing={() => {
                     setBusy(true)
                     setError('')
                     setStage('Processing speech')
-                    setParsed(null)
-                    setSecondaryTranscript(null)
+                    setPendingResult(null)
                   }}
                   onStreamResult={handleVoiceResult}
                   onAudio={(b, e) => void handleAudio(b, e)}
@@ -774,6 +837,10 @@ export default function App() {
                     setStage('Ready')
                   }}
                 />
+
+                {showMicSettings && (
+                  <MicrophoneSettings deviceId={micDeviceId} onDeviceChange={setMicDeviceId} />
+                )}
 
                 <div className="status" role="status">
                   {busy ? <LoaderCircle className="spin" size={14} /> : <span className="status-dot" />}
@@ -806,34 +873,17 @@ export default function App() {
                   </div>
                 )}
 
-                {parsed && (
-                  <div className="interpretation">
-                    <span className="eyebrow">{parsed.requires_clarification ? 'LET’S CLARIFY' : 'I UNDERSTOOD'}</span>
-                    <blockquote>{parsed.original_transcript}</blockquote>
-                    {secondaryTranscript && asrMode === 'tanglish' && (
-                      <details className="secondary-transcript">
-                        <summary>Dual-ASR Tamil pass</summary>
-                        <span>{secondaryTranscript}</span>
-                      </details>
-                    )}
-                    {parsed.requires_clarification ? (
-                      <p>{parsed.clarification_question}</p>
-                    ) : (
-                      <div className="operation-list">
-                        {parsed.operations.map((op) => (
-                          <span key={op.id}>
-                            <Check size={13} />
-                            {operationLabel(op)}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {parsed.warnings.map((w) => (
-                      <p key={w} className="muted">
-                        {w}
-                      </p>
-                    ))}
-                  </div>
+                {/* Phase 8: TranscriptReview — operations NOT applied until user clicks Apply */}
+                {pendingResult && (
+                  <TranscriptReview
+                    result={pendingResult}
+                    applying={applyingResult}
+                    onApply={(r, edited) => void applyPendingResult(r, edited)}
+                    onCancel={() => {
+                      setPendingResult(null)
+                      setStage('Ready')
+                    }}
+                  />
                 )}
               </div>
 

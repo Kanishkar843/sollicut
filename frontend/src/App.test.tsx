@@ -3,7 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import App, { validateMedia } from './App'
 import Landing from './Landing'
 import VoiceButton, { microphoneError } from './VoiceButton'
-import { operationLabel } from './api'
+import { TranscriptReview } from './components/voice/TranscriptReview'
+import { MicrophoneSettings } from './components/voice/MicrophoneSettings'
+import { operationLabel, type Command } from './api'
 
 afterEach(() => {
   cleanup()
@@ -430,4 +432,221 @@ test('falls back to MediaRecorder when AudioWorklet is unavailable', async () =>
   await screen.findByRole('button', { name: 'Stop recording' })
   fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
   expect(onAudio).toHaveBeenCalledWith(expect.any(Blob), 'webm')
+})
+
+test('Phase 8 TranscriptReview shows operations and requires explicit Apply click', () => {
+  const onApply = vi.fn()
+  const onCancel = vi.fn()
+  const cmd: Command = {
+    transcript: 'Offer ah 25 percent nu maathu. Smooth zoom podu.',
+    secondary_transcript: 'ஸ்மூத் ஜூம்',
+    asr_mode: 'tanglish',
+    engines_used: ['faster-whisper', 'indicconformer-ta'],
+    preview: true,
+    parsed_command: {
+      original_transcript: 'Offer ah 25 percent nu maathu. Smooth zoom podu.',
+      operations: [
+        { id: 'op1', type: 'set_text_overlay', parameters: { text: '25 percent offer', placement: 'end_card' } },
+        { id: 'op2', type: 'set_zoom_style', parameters: { style: 'smooth' } },
+      ],
+      requires_clarification: false,
+      clarification_question: null,
+      warnings: [],
+      matched_sources: { set_text_overlay: 'faster-whisper', set_zoom_style: 'faster-whisper' },
+    },
+  }
+  render(<TranscriptReview result={cmd} onApply={onApply} onCancel={onCancel} />)
+  expect(screen.getByText('Offer ah 25 percent nu maathu. Smooth zoom podu.')).toBeInTheDocument()
+  expect(screen.getByText('Smooth photo zoom')).toBeInTheDocument()
+  expect(onApply).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Apply all 2' }))
+  expect(onApply).toHaveBeenCalledWith(cmd, undefined)
+})
+
+test('Phase 8 TranscriptReview supports inline transcript editing and Cancel', () => {
+  const onApply = vi.fn()
+  const onCancel = vi.fn()
+  const cmd: Command = {
+    parsed_command: {
+      original_transcript: 'Offer ah 20 percent',
+      operations: [
+        { id: 'op1', type: 'set_text_overlay', parameters: { text: '20 percent', placement: 'end_card' } },
+      ],
+      requires_clarification: false,
+      clarification_question: null,
+      warnings: [],
+    },
+  }
+  render(<TranscriptReview result={cmd} onApply={onApply} onCancel={onCancel} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+  const box = screen.getByLabelText('Edit voice command transcript') as HTMLTextAreaElement
+  fireEvent.change(box, { target: { value: 'Offer ah 30 percent nu maathu' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+  expect(onApply).toHaveBeenCalledWith(cmd, 'Offer ah 30 percent nu maathu')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(onCancel).toHaveBeenCalledTimes(1)
+})
+
+test('Phase 8 Clarification renders question and hides Apply button', () => {
+  const cmd: Command = {
+    parsed_command: {
+      original_transcript: 'make reel',
+      operations: [],
+      requires_clarification: true,
+      clarification_question: 'How long should the reel be?',
+      warnings: [],
+    },
+  }
+  render(<TranscriptReview result={cmd} onApply={vi.fn()} onCancel={vi.fn()} />)
+  expect(screen.getByText('How long should the reel be?')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Apply/i })).not.toBeInTheDocument()
+})
+
+test('Phase 8 App defers execution until user clicks Apply on preview WS result', async () => {
+  const fetchSpy = vi.fn(async (input: string) => {
+    const url = String(input)
+    if (url.includes('capabilities')) {
+      return {
+        ok: true,
+        json: async () => ({
+          generation: { configured: false, status: 'key_not_set', model: 'gemini-omni-1.2-flash' },
+          renderer: { available: true },
+          speech: { status: 'ready', error: null },
+        }),
+      }
+    }
+    if (url.endsWith('/apply')) {
+      return {
+        ok: true,
+        json: async () => ({
+          job_id: 'job-applied-1',
+          parsed_command: {
+            original_transcript: 'Create a 15 seconds reel',
+            operations: [{ id: 'op1', type: 'create_reel', parameters: { duration_seconds: 15 } }],
+            requires_clarification: false,
+            clarification_question: null,
+            warnings: [],
+          },
+        }),
+      }
+    }
+    if (url.includes('/jobs/')) {
+      return { ok: true, json: async () => ({ status: 'done', stage: 'Ready to preview' }) }
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        id: 'project',
+        assets: [{ id: 'a1', filename: 'photo.png', media_type: 'image' }],
+        current_output: null,
+        current_render_revision: 1,
+        undo_stack: [],
+        settings: {
+          duration_seconds: 15,
+          zoom_style: 'smooth',
+          music_enabled: true,
+          music_volume: 0.2,
+          keep_clip_audio: false,
+          clip_audio_volume: 0.7,
+          fit_mode: 'contain',
+          overlay_text: null,
+          overlay_position: 'end_card',
+          overlay_color: 'lime',
+          brightness: 0,
+        },
+      }),
+    }
+  })
+  vi.stubGlobal('fetch', fetchSpy)
+
+  const wsRef: { current: { onopen: (() => void) | null; onmessage: ((ev: { data: string }) => void) | null } | null } = { current: null }
+  let currentOnMessage: ((ev: { data: unknown }) => void) | null = null
+  class MockWebSocket {
+    static OPEN = 1
+    binaryType = 'blob'
+    readyState = 1
+    onopen: (() => void) | null = null
+    onmessage: ((ev: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+    constructor() {
+      wsRef.current = this
+      queueMicrotask(() => this.onopen?.())
+    }
+    send() {}
+    close() { this.readyState = 3 }
+  }
+  class MockWorkletNode {
+    port = {
+      get onmessage() { return currentOnMessage },
+      set onmessage(fn: ((ev: { data: unknown }) => void) | null) { currentOnMessage = fn },
+      postMessage(msg: unknown) {
+        if (msg && typeof msg === 'object' && (msg as Record<string, unknown>).type === 'flush') {
+          queueMicrotask(() => currentOnMessage?.({ data: { type: 'flushed', seq: 0 } }))
+        }
+      },
+    }
+    disconnect() {}
+  }
+  class MockAudioContext {
+    state = 'running'
+    audioWorklet = { addModule: vi.fn().mockResolvedValue(undefined) }
+    createMediaStreamSource() { return { connect: vi.fn() } }
+    close() { this.state = 'closed'; return Promise.resolve() }
+  }
+  vi.stubGlobal('WebSocket', MockWebSocket)
+  vi.stubGlobal('AudioContext', MockAudioContext)
+  vi.stubGlobal('AudioWorkletNode', MockWorkletNode)
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      getUserMedia: vi.fn().mockResolvedValue({
+        getTracks: () => [{ stop: vi.fn() }],
+        getAudioTracks: () => [{ onended: null }],
+      }),
+    },
+  })
+
+  render(<App />)
+  const startBtn = await screen.findByRole('button', { name: 'Start recording' })
+  await waitFor(() => expect(startBtn).not.toBeDisabled())
+  fireEvent.click(startBtn)
+  await screen.findByRole('button', { name: 'Stop recording' })
+  fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+  await waitFor(() => expect(wsRef.current).not.toBeNull())
+
+  wsRef.current?.onmessage?.({
+    data: JSON.stringify({
+      preview: true,
+      transcript: 'Create a 15 seconds reel',
+      asr_mode: 'en',
+      parsed_command: {
+        original_transcript: 'Create a 15 seconds reel',
+        operations: [{ id: 'op1', type: 'create_reel', parameters: { duration_seconds: 15 } }],
+        requires_clarification: false,
+        clarification_question: null,
+        warnings: [],
+      },
+    }),
+  })
+
+  // Apply button is shown, and /apply has NOT been called yet
+  const applyBtn = await screen.findByRole('button', { name: 'Apply' })
+  expect(fetchSpy).not.toHaveBeenCalledWith('/api/projects/project/apply', expect.anything())
+
+  fireEvent.click(applyBtn)
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/projects/project/apply',
+      expect.objectContaining({ method: 'POST' }),
+    ),
+  )
+})
+
+test('Phase 8 MicrophoneSettings renders cleanly without Permissions API', () => {
+  render(<MicrophoneSettings />)
+  expect(screen.getByRole('region', { name: 'Microphone settings' })).toBeInTheDocument()
+  expect(screen.getByText(/Using system default microphone/i)).toBeInTheDocument()
 })

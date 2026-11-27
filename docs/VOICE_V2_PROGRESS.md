@@ -11,13 +11,13 @@
 | **P0** | Baseline Audit & V2 Docs | ✅ COMPLETE | `f41bc1d` |
 | **P1** | Anti-Aliased Resampler + Flush Handshake | ✅ COMPLETE | `108b6da` |
 | **P2** | Reliable WebSocket Transport | ✅ COMPLETE | `23d68a4` |
-| **P3** | Silero VAD Integration | 🔄 IN PROGRESS | — |
-| **P4** | ASR Engine Upgrade (Tamil Kili / Whisper LV3T) | 🔲 PENDING | — |
-| **P5** | Multilingual Normalization V2 | 🔲 PENDING | — |
-| **P6** | Semantic Command Planner | 🔲 PENDING | — |
-| **P7** | Context Manager + Validation | 🔲 PENDING | — |
-| **P8** | Voice Director UX | 🔲 PENDING | — |
-| **P9** | CPU Profiling & Deployment Profiles | 🔲 PENDING | — |
+| **P3** | Silero VAD Integration | ✅ COMPLETE | `8cce2c1` |
+| **P4** | ASR Engine Upgrade (Tamil Kili / Whisper LV3T) | ✅ COMPLETE | `5599761` |
+| **P5** | Multilingual Normalization V2 | ✅ COMPLETE | `8ea3082` |
+| **P6** | Semantic Command Planner | ✅ COMPLETE | `8ea3082` |
+| **P7** | Context Manager + Validation | ✅ COMPLETE | `8ea3082` |
+| **P8** | Voice Director UX | ✅ COMPLETE | (this commit) |
+| **P9** | CPU Profiling & Deployment Profiles | 🔄 NEXT | — |
 | **P10** | Benchmarking Framework | 🔲 PENDING | — |
 | **P11** | Final Regression Suite | 🔲 PENDING | — |
 

@@ -460,9 +460,26 @@ async def apply(project_id: str, body: ApplyRequest):
     project = claim(project_id)
     result = None
     try:
-        parsed = parse(body.transcript, _media_count(project), bool(project.current_output))
+        if body.secondary_transcript:
+            from .models import DualTranscriptResult
+            mode = body.asr_mode or "tanglish"
+            dual = DualTranscriptResult(
+                primary_text=body.transcript,
+                tamil_transcript=body.secondary_transcript,
+                english_transcript=body.transcript,
+                mode=mode,
+                engines_used=[],
+                elapsed_seconds=0.0,
+            )
+            parsed = parse_dual_command(dual, project)
+        else:
+            parsed = parse(body.transcript, _media_count(project), bool(project.current_output))
         result = dispatch(project, parsed)
-        return result
+        return {
+            **result,
+            "transcript": body.transcript,
+            "secondary_transcript": body.secondary_transcript,
+        }
     finally:
         if not result or "job_id" not in result:
             busy.discard(project_id)
@@ -577,6 +594,7 @@ async def voice_ws(
     project_id: str,
     mode: str = "tanglish",
     session_id: str | None = None,
+    auto_apply: bool = True,
 ):
     await websocket.accept()
 
@@ -679,7 +697,15 @@ async def voice_ws(
 
                         try:
                             parsed = parse_dual_command(dual_res, project)
-                            result = dispatch(project, parsed)
+                            preview_only = (not auto_apply) or bool(payload.get("preview"))
+                            if preview_only:
+                                result = {
+                                    "parsed_command": parsed,
+                                    "requires_clarification": parsed.requires_clarification,
+                                    "preview": True,
+                                }
+                            else:
+                                result = dispatch(project, parsed)
                         except HTTPException as exc:
                             await websocket.send_json({"error": exc.detail, "command_id": command_id})
                             await websocket.close(code=1000)
@@ -740,6 +766,7 @@ async def voice(
     language_hint: str | None = Form(None),
     mode: str = Form("edit"),
     asr_mode: str | None = Form(None),
+    auto_apply: bool = Form(True),
 ):
     project = claim(project_id)
     result, path = None, None
@@ -774,7 +801,14 @@ async def voice(
         if action_mode == "generate":
             return {"generation_prompt": dual_res.primary_text, "transcript": dual_res.primary_text, "requires_confirmation": True}
         parsed = parse_dual_command(dual_res, project)
-        result = dispatch(project, parsed)
+        if not auto_apply:
+            result = {
+                "parsed_command": parsed,
+                "requires_clarification": parsed.requires_clarification,
+                "preview": True,
+            }
+        else:
+            result = dispatch(project, parsed)
         secondary = (
             dual_res.tamil_transcript
             if resolved_asr_mode == "tanglish" and dual_res.tamil_transcript and dual_res.tamil_transcript != dual_res.primary_text

@@ -99,6 +99,8 @@ class ProjectState(StrictModel):
 
 class ApplyRequest(StrictModel):
     transcript: str = Field(min_length=1, max_length=1000)
+    secondary_transcript: str | None = Field(default=None, max_length=1000)
+    asr_mode: Literal["tanglish", "ta", "en"] | None = None
 
 
 class GenerateRequest(StrictModel):

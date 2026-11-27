@@ -24,6 +24,7 @@ export type RecorderState =
 type StartOptions = {
   projectId?: string
   mode: AsrMode
+  previewOnly?: boolean
   onStreamResult?: (command: Command) => void
   onProcessing?: () => void
   onAudio: (blob: Blob, extension: string) => void
@@ -155,7 +156,7 @@ export function useRecorder() {
   }
 
   async function start(opts: StartOptions) {
-    const { projectId, mode, onStreamResult, onProcessing, onAudio, onError } = opts
+    const { projectId, mode, previewOnly = false, onStreamResult, onProcessing, onAudio, onError } = opts
     stoppingRef.current = false
     setRecorderState('initializing')
     try {
@@ -188,6 +189,7 @@ export function useRecorder() {
           stream,
           projectId,
           mode,
+          previewOnly,
           onStreamResult,
           onProcessing,
           onAudio,
@@ -208,6 +210,7 @@ export function useRecorder() {
     stream: MediaStream,
     projectId: string,
     mode: AsrMode,
+    previewOnly: boolean,
     onStreamResult: (command: Command) => void,
     onProcessing: (() => void) | undefined,
     onAudio: (blob: Blob, extension: string) => void,
@@ -233,7 +236,7 @@ export function useRecorder() {
         return false
       }
 
-      ws = new WebSocket(buildVoiceWsUrl(projectId, mode, crypto.randomUUID()))
+      ws = new WebSocket(buildVoiceWsUrl(projectId, mode, crypto.randomUUID(), !previewOnly))
       ws.binaryType = 'arraybuffer'
       await new Promise<void>((resolve, reject) => {
         if (!ws) return reject(new Error('No WebSocket'))
@@ -324,7 +327,9 @@ export function useRecorder() {
             setRecorderState('processing')
             onProcessing?.()
             try {
-              ws.send(JSON.stringify({ event: 'stop', command_id: crypto.randomUUID() }))
+              const stopPayload: Record<string, unknown> = { event: 'stop', command_id: crypto.randomUUID() }
+              if (previewOnly) stopPayload.preview = true
+              ws.send(JSON.stringify(stopPayload))
             } catch {
               wsFailed = true
             }

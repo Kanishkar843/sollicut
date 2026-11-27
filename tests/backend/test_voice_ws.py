@@ -224,3 +224,48 @@ def test_ws_session_id_echoed_in_response(client, monkeypatch):
         res = ws.receive_json()
     assert res.get("session_id") == sid
     assert res.get("command_id") == "cmd-echo-test"
+
+
+def test_ws_preview_mode_does_not_dispatch_until_apply(client, monkeypatch):
+    """Phase 8: auto_apply=false / preview=true parses without queuing render job until POST /apply."""
+    pid = client.post("/api/projects").json()["id"]
+    assert client.post(f"/api/projects/{pid}/assets", files={"file": ("p.png", _photo_bytes(), "image/png")}).status_code == 200
+
+    async def fake_transcribe_pcm(samples, mode="tanglish"):
+        return DualTranscriptResult(
+            primary_text="Offer ah 25 percent nu maathu.",
+            tamil_transcript="மியூசிக் கம்மி பண்ணு",
+            english_transcript="Offer ah 25 percent nu maathu.",
+            mode=mode,
+            engines_used=["indicconformer-ta", "faster-whisper"],
+            elapsed_seconds=0.1,
+        )
+
+    monkeypatch.setattr(main.speech, "transcribe_pcm", fake_transcribe_pcm)
+
+    with client.websocket_connect(f"/ws/voice/{pid}?mode=tanglish&auto_apply=false") as ws:
+        ws.send_bytes(_pcm_chunk(0.5))
+        ws.send_text(json.dumps({"event": "stop", "preview": True, "command_id": "cmd-prev-1"}))
+        res = ws.receive_json()
+
+    assert res.get("preview") is True
+    assert "job_id" not in res
+    assert len(main.jobs) == 0
+    assert pid not in main.busy
+    op_types = {op["type"] for op in res["parsed_command"]["operations"]}
+    assert op_types == {"set_text_overlay", "set_music_volume"}
+
+    # Explicit POST /apply executes both dual-ASR fused operations
+    applied = client.post(
+        f"/api/projects/{pid}/apply",
+        json={
+            "transcript": res["transcript"],
+            "secondary_transcript": res["secondary_transcript"],
+            "asr_mode": "tanglish",
+        },
+    )
+    assert applied.status_code == 200
+    body = applied.json()
+    assert "job_id" in body
+    applied_types = {op["type"] for op in body["parsed_command"]["operations"]}
+    assert applied_types == {"set_text_overlay", "set_music_volume"}
