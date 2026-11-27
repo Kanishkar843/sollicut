@@ -1,4 +1,4 @@
-﻿# Real voice benchmark (Dual-ASR: IndicConformer-TA + Whisper small INT8)
+# Real voice benchmark (Dual-ASR: IndicConformer-TA + Whisper small INT8)
 
 Record each command using the actual browser microphone (`Tanglish`, `தமிழ்`, or `English` mode over `WS /ws/voice/{project_id}`). Automated backend suite (`99 passed`) and frontend suite (`13 passed`) verified synthetic PCM WebSocket streaming, dual-pass fusion, and model loading locally; live human microphone acceptance remains `NEEDS HUMAN VERIFICATION`.
 
