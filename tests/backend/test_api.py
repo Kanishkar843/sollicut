@@ -104,3 +104,51 @@ def test_speech_empty_segments():
     engine.model = SimpleNamespace(transcribe=lambda *a, **k: ([], SimpleNamespace(language="en")))
     with pytest.raises(ValueError, match="No speech"):
         asyncio.run(engine.transcribe(Path("fixture.wav")))
+
+
+def test_video_upload_visual_edit_and_undo(client, tmp_path):
+    from backend.app import media
+    clip_path = tmp_path / "clip.mp4"
+    media.run([
+        "ffmpeg", "-v", "error", "-y",
+        "-f", "lavfi", "-i", "color=c=#223c30:s=360x640:d=2",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip_path),
+    ])
+    pid = client.post("/api/projects").json()["id"]
+    root = f"/api/projects/{pid}"
+    # Reject invalid video payloads cleanly.
+    assert client.post(root + "/assets", files={"file": ("broken.mp4", b"not-a-video", "video/mp4")}).status_code == 422
+
+    # Upload 1 photo + 1 real MP4 video clip.
+    assert client.post(root + "/assets", files={"file": ("item.png", photo(), "image/png")}).status_code == 200
+    uploaded = client.post(root + "/assets", files={"file": ("clip.mp4", clip_path.read_bytes(), "video/mp4")})
+    assert uploaded.status_code == 200
+    assets = uploaded.json()["assets"]
+    assert [a["media_type"] for a in assets] == ["image", "video"]
+    photo_id, video_id = assets[0]["id"], assets[1]["id"]
+
+    # Reorder & trim without rendering, then undo and verify assets revert.
+    edit = client.post(root + "/edit", json={
+        "reorder_asset_ids": [video_id, photo_id],
+        "trim_asset_id": video_id,
+        "trim_start": 0.25,
+        "trim_end": 1.5,
+        "overlay_text": "Boutique drop",
+        "overlay_color": "amber",
+        "render": False,
+    })
+    assert edit.status_code == 200
+    edited = edit.json()["project"]
+    assert [a["id"] for a in edited["assets"]] == [video_id, photo_id]
+    assert edited["assets"][0]["trim_start"] == 0.25
+    assert edited["assets"][0]["trim_end"] == 1.5
+    assert edited["settings"]["overlay_text"] == "Boutique drop"
+    assert edited["settings"]["overlay_color"] == "amber"
+
+    restored = client.post(root + "/undo")
+    assert restored.status_code == 200
+    rev = restored.json()
+    assert [a["id"] for a in rev["assets"]] == [photo_id, video_id]
+    assert rev["assets"][1]["trim_start"] == 0.0
+    assert rev["assets"][1]["trim_end"] is None
+    assert rev["settings"]["overlay_text"] is None

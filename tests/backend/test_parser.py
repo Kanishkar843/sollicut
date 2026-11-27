@@ -63,11 +63,35 @@ def test_controls(text, kind):
     assert kind in operations(text)
 
 
-@pytest.mark.parametrize("text,count", [("", 3), ("add offer", 3), ("antha frame zoom", 3), ("make reel", 0), ("make reel", 1), ("make reel", 6), ("fly to Mars", 3), ("rendu seconds", 3), ("create 120 seconds reel", 3), ("add text", 3), ('add text "../../secret"', 3), ("music and trim", 3)])
+@pytest.mark.parametrize("text,count", [("", 3), ("add offer", 3), ("antha frame zoom", 3), ("make reel", 0), ("make reel", 6), ("fly to Mars", 3), ("rendu seconds", 3), ("create 120 seconds reel", 3), ("add text", 3), ('add text "../../secret"', 3), ("music and slow motion", 3), ("trim", 2), ("reorder", 2)])
 def test_clarification(text, count):
     result = parse(text, count)
     assert result.requires_clarification
     assert result.clarification_question
+
+
+def test_single_media_and_video_commands():
+    single = operations("Create a 10 seconds reel from my video clip", count=1)
+    assert single["create_reel"]["duration_seconds"] == 10
+
+    trimmed = operations("Trim clip 1 from 1 to 4 seconds", count=2)
+    assert trimmed["trim_clip"] == {"clip_index": 1, "trim_start": 1.0, "trim_end": 4.0}
+
+    cut_start = operations("Cut first 2 seconds", count=1)
+    assert cut_start["trim_clip"] == {"clip_index": 1, "cut_start_seconds": 2.0}
+
+    reordered = operations("Swap clip 1 and 2", count=2)
+    assert reordered["reorder_assets"] == {"from_index": 1, "to_index": 2, "mode": "swap"}
+
+    moved = operations("Move clip 3 first", count=3)
+    assert moved["reorder_assets"] == {"from_index": 3, "to_index": 1, "mode": "move"}
+
+    clip_audio = operations("Keep video audio and fill screen", count=2)
+    assert clip_audio["set_clip_audio"] == {"enabled": True}
+    assert clip_audio["set_fit_mode"] == {"mode": "cover"}
+
+    muted = operations("Mute video audio", count=1)
+    assert muted["set_clip_audio"] == {"enabled": False}
 
 
 def test_raw_preserved():

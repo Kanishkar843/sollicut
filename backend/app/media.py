@@ -26,11 +26,18 @@ def probe(path: Path) -> dict:
     return json.loads(run(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)], 20))
 
 
+ACCENTS = {
+    "lime": (215, 239, 65),
+    "white": (245, 247, 244),
+    "amber": (251, 191, 36),
+}
+
+
 def capabilities() -> dict:
     try:
         filters = run(["ffmpeg", "-hide_banner", "-filters"], 10)
         encoders = run(["ffmpeg", "-hide_banner", "-encoders"], 10)
-        required = ("scale", "pad", "zoompan", "overlay", "concat", "eq", "volume")
+        required = ("scale", "pad", "crop", "zoompan", "overlay", "concat", "eq", "volume", "amix", "anullsrc")
         missing = [f for f in required if f not in filters]
         if "libx264" not in encoders or " aac " not in encoders:
             missing.append("H.264/AAC encoder")
@@ -41,7 +48,7 @@ def capabilities() -> dict:
         return {"available": False, "error": str(exc), "raqm": features.check_feature("raqm")}
 
 
-def overlay(text: str, path: Path, position: str = "end_card") -> None:
+def overlay(text: str, path: Path, position: str = "end_card", accent: str = "lime") -> None:
     if not features.check_feature("raqm"):
         raise RuntimeError("Tamil shaping requires Pillow with libraqm")
     canvas = Image.new("RGBA", (720, 1280))
@@ -64,17 +71,18 @@ def overlay(text: str, path: Path, position: str = "end_card") -> None:
         raise ValueError("Text is too wide; use shorter words")
     height = len(lines) * (size + 22) + 64
     top = (1280 - height) // 2 if position == "center" else 1140 - height
-    draw.rounded_rectangle((36, top, 684, top + height), radius=28, fill=(19, 27, 38, 235))
-    draw.rounded_rectangle((64, top + 24, 132, top + 30), radius=3, fill=(220, 255, 108))
+    bar_color = ACCENTS.get(accent, ACCENTS["lime"])
+    draw.rounded_rectangle((36, top, 684, top + height), radius=28, fill=(14, 17, 15, 238))
+    draw.rounded_rectangle((64, top + 24, 132, top + 30), radius=3, fill=bar_color)
     for i, line in enumerate(lines):
         draw.text((360, top + 48 + i * (size + 22)), line, font=font, anchor="mt", fill="white")
     canvas.save(path)
 
 
 def render(project: ProjectState, revision: int, stage: Callable[[str], None] = lambda _: None) -> Path:
-    images = [a for a in project.assets if a.media_type in {"image", "video"}]
-    if not 1 <= len(images) <= 5:
-        raise ValueError("A reel needs 1 to 5 photos or clips")
+    media_items = [a for a in project.assets if a.media_type in {"image", "video"}]
+    if not 1 <= len(media_items) <= 5:
+        raise ValueError("A reel needs 1 to 5 photos or video clips")
     directory = project_dir(project.id)
     scratch = directory / "renders" / f"work-{revision}"
     scratch.mkdir(parents=True, exist_ok=True)
@@ -82,28 +90,90 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
     total_frames = round(settings.duration_seconds * 30)
     clips = []
     try:
-        for index, asset in enumerate(images):
-            stage(f"Animating photo {index + 1} of {len(images)}")
-            frames = total_frames // len(images) + (index < total_frames % len(images))
+        for index, asset in enumerate(media_items):
+            stage(f"Processing clip {index + 1} of {len(media_items)}")
+            frames = total_frames // len(media_items) + (index < total_frames % len(media_items))
+            slot_seconds = frames / 30.0
+            clip = scratch / f"clip-{index}.mp4"
             if asset.media_type == "video":
-                clip = scratch / f"clip-{index}.mp4"
-                vf = f"scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=0x131b26,setsar=1,fps=30,eq=brightness={settings.brightness},format=yuv420p"
-                run(["ffmpeg", "-v", "error", "-y", "-stream_loop", "-1", "-i", str(directory / asset.path), "-vf", vf, "-frames:v", str(frames), "-an", "-c:v", "libx264", "-preset", "veryfast", "-threads", "2", str(clip)])
+                source_path = directory / asset.path
+                info = probe(source_path)
+                has_audio = any(s.get("codec_type") == "audio" for s in info.get("streams", []))
+                trim_start = asset.trim_start or 0.0
+                trim_end = asset.trim_end
+                if trim_start > 0 or trim_end is not None:
+                    trimmed = scratch / f"trimmed-{index}.mp4"
+                    trim_args = ["ffmpeg", "-v", "error", "-y", "-ss", f"{trim_start:.3f}", "-i", str(source_path)]
+                    if trim_end is not None and trim_end > trim_start:
+                        trim_args += ["-t", f"{trim_end - trim_start:.3f}"]
+                    trim_args += ["-c:v", "libx264", "-preset", "veryfast", "-threads", "2"]
+                    if has_audio and settings.keep_clip_audio:
+                        trim_args += ["-c:a", "aac", "-ar", "44100", "-ac", "1"]
+                    else:
+                        trim_args += ["-an"]
+                    trim_args.append(str(trimmed))
+                    run(trim_args)
+                    source_path = trimmed
+                scale_filter = (
+                    "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280"
+                    if settings.fit_mode == "cover"
+                    else "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:color=0x0e110f"
+                )
+                vf = f"{scale_filter},setsar=1,fps=30,eq=brightness={settings.brightness},format=yuv420p"
+                clip_args = ["ffmpeg", "-v", "error", "-y", "-stream_loop", "-1", "-i", str(source_path)]
+                if settings.keep_clip_audio:
+                    if has_audio:
+                        clip_args += [
+                            "-vf", vf, "-frames:v", str(frames),
+                            "-af", f"volume={settings.clip_audio_volume},aresample=44100,pan=mono|c0=c0",
+                            "-t", f"{slot_seconds:.3f}",
+                            "-c:v", "libx264", "-preset", "veryfast", "-threads", "2",
+                            "-c:a", "aac", "-ar", "44100", "-ac", "1", str(clip),
+                        ]
+                    else:
+                        clip_args += [
+                            "-f", "lavfi", "-t", f"{slot_seconds:.3f}", "-i", "anullsrc=r=44100:cl=mono",
+                            "-vf", vf, "-frames:v", str(frames),
+                            "-map", "0:v:0", "-map", "1:a:0", "-shortest",
+                            "-c:v", "libx264", "-preset", "veryfast", "-threads", "2",
+                            "-c:a", "aac", "-ar", "44100", "-ac", "1", str(clip),
+                        ]
+                else:
+                    clip_args += ["-vf", vf, "-frames:v", str(frames), "-an", "-c:v", "libx264", "-preset", "veryfast", "-threads", "2", str(clip)]
+                run(clip_args)
                 clips.append(clip)
                 continue
+
             normalized = scratch / f"photo-{index}.png"
             with Image.open(directory / asset.path) as source:
-                fitted = ImageOps.contain(ImageOps.exif_transpose(source).convert("RGB"), (1440, 2560))
-                canvas = Image.new("RGB", (1440, 2560), "#131b26")
-                canvas.paste(fitted, ((1440 - fitted.width) // 2, (2560 - fitted.height) // 2))
+                oriented = ImageOps.exif_transpose(source).convert("RGB")
+                if settings.fit_mode == "cover":
+                    canvas = ImageOps.fit(oriented, (1440, 2560))
+                else:
+                    fitted = ImageOps.contain(oriented, (1440, 2560))
+                    canvas = Image.new("RGB", (1440, 2560), "#0e110f")
+                    canvas.paste(fitted, ((1440 - fitted.width) // 2, (2560 - fitted.height) // 2))
                 canvas.save(normalized)
             zoom = f"1+0.08*on/{max(1, frames-1)}" if settings.zoom_style == "smooth" else "1"
             vf = f"zoompan=z='{zoom}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d={frames}:s=720x1280:fps=30,eq=brightness={settings.brightness},setsar=1,format=yuv420p"
-            clip = scratch / f"clip-{index}.mp4"
-            run(["ffmpeg", "-v", "error", "-y", "-i", str(normalized), "-vf", vf,
-                 "-frames:v", str(frames), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-threads", "2", str(clip)])
+            photo_args = ["ffmpeg", "-v", "error", "-y", "-i", str(normalized)]
+            if settings.keep_clip_audio:
+                photo_args += [
+                    "-f", "lavfi", "-t", f"{slot_seconds:.3f}", "-i", "anullsrc=r=44100:cl=mono",
+                    "-vf", vf, "-frames:v", str(frames),
+                    "-map", "0:v:0", "-map", "1:a:0", "-shortest",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-threads", "2",
+                    "-c:a", "aac", "-ar", "44100", "-ac", "1", str(clip),
+                ]
+            else:
+                photo_args += [
+                    "-vf", vf, "-frames:v", str(frames), "-an",
+                    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-threads", "2", str(clip),
+                ]
+            run(photo_args)
             clips.append(clip)
-        stage("Joining photos and mixing music")
+
+        stage("Joining clips and mixing audio")
         manifest = scratch / "clips.txt"
         manifest.write_text("\n".join(f"file '{c.name}'" for c in clips), encoding="utf-8")
         joined = scratch / "joined.mp4"
@@ -112,18 +182,31 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
         audio = next((directory / a.path for a in project.assets if a.media_type == "audio"), ROOT / "assets/demo/music.wav")
         if settings.music_enabled:
             args += ["-stream_loop", "-1", "-i", str(audio)]
+        filter_parts = []
+        video_map = "0:v"
         if settings.overlay_text:
             stage("Shaping promotional text")
             png = directory / "overlays" / f"{revision}.png"
-            overlay(settings.overlay_text, png, settings.overlay_position)
+            overlay(settings.overlay_text, png, settings.overlay_position, settings.overlay_color)
             args += ["-i", str(png)]
             overlay_index = 2 if settings.music_enabled else 1
             enable = f":enable='gte(t,{max(0, settings.duration_seconds-4)})'" if settings.overlay_position == "end_card" else ""
-            args += ["-filter_complex_threads", "1", "-filter_complex", f"[0:v][{overlay_index}:v]overlay=0:0{enable}[v]", "-map", "[v]"]
-        else:
-            args += ["-map", "0:v"]
-        if settings.music_enabled:
-            args += ["-map", "1:a:0", "-af", f"volume={settings.music_volume},afade=t=out:st={settings.duration_seconds-.5}:d=0.5", "-c:a", "aac", "-b:a", "128k"]
+            filter_parts.append(f"[0:v][{overlay_index}:v]overlay=0:0{enable}[v]")
+            video_map = "[v]"
+        if settings.keep_clip_audio and settings.music_enabled:
+            filter_parts.append(
+                f"[1:a]volume={settings.music_volume},afade=t=out:st={max(0, settings.duration_seconds-.5)}:d=0.5[bgm];"
+                f"[0:a][bgm]amix=inputs=2:duration=first:normalize=0[aout]"
+            )
+        if filter_parts:
+            args += ["-filter_complex_threads", "1", "-filter_complex", ";".join(filter_parts)]
+        args += ["-map", video_map]
+        if settings.keep_clip_audio and settings.music_enabled:
+            args += ["-map", "[aout]", "-c:a", "aac", "-b:a", "128k"]
+        elif settings.music_enabled:
+            args += ["-map", "1:a:0", "-af", f"volume={settings.music_volume},afade=t=out:st={max(0, settings.duration_seconds-.5)}:d=0.5", "-c:a", "aac", "-b:a", "128k"]
+        elif settings.keep_clip_audio:
+            args += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "128k"]
         else:
             args += ["-an"]
         output = directory / "renders" / f"revision-{revision}.mp4"
