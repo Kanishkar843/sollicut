@@ -232,7 +232,8 @@ const CSS =
   ".ffl-root img{max-width:none}" +
   ".ffl-glow{position:absolute;inset:0;pointer-events:none;background:radial-gradient(52% 46% at 50% 47%,color-mix(in srgb,var(--ffl-tint) 13%,transparent),transparent 72%)}" +
   ".ffl-rig{position:absolute;inset:0;perspective:1900px}" +
-  ".ffl-shell{position:absolute;left:0;top:0;perspective:2600px;cursor:pointer;-webkit-tap-highlight-color:transparent}" +
+  ".ffl-shell{position:absolute;left:0;top:0;perspective:2600px;cursor:pointer;-webkit-tap-highlight-color:transparent;border-radius:11px}" +
+  ".ffl-shell:focus-visible{outline:2px solid var(--ffl-tint);outline-offset:6px}" +
   ".ffl-back{position:absolute;inset:0;z-index:1;border-radius:3px 11px 11px 3px;background:linear-gradient(180deg,color-mix(in srgb,var(--ffl-tint) 46%,#06222b),#082a35 34%,#061d27 70%,color-mix(in srgb,var(--ffl-tint) 52%,#06222b));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ffl-tint) 46%,transparent),0 40px 80px -30px rgba(0,0,0,.8)}" +
   ".ffl-tab{position:absolute;z-index:1;left:100%;top:52%;width:3.6%;height:25%;margin-left:-1px;border-radius:0 7px 7px 0;background:linear-gradient(180deg,color-mix(in srgb,var(--ffl-tint) 62%,#06222b),color-mix(in srgb,var(--ffl-tint) 36%,#06222b));box-shadow:inset -1px 0 0 color-mix(in srgb,var(--ffl-tint) 70%,#fff)}" +
   ".ffl-paper{position:absolute;z-index:1;border-radius:2px;background:linear-gradient(180deg,#e2ebef,#d3dfe5);box-shadow:0 0 0 1px rgba(10,40,50,.12),0 6px 16px -8px rgba(0,0,0,.5)}" +
@@ -486,7 +487,17 @@ export function FrostedFolderLookbook({
           ref={shellRef}
           className="ffl-shell"
           style={{ width: fw, height: fh }}
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+          aria-label={open ? closeLabel : openLabel}
           onClick={() => toggle()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+              toggle()
+            }
+          }}
           onPointerEnter={onHover(1)}
           onPointerLeave={onHover(0)}
         >
