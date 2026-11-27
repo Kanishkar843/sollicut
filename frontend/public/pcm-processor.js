@@ -76,9 +76,14 @@ function buildPolyphaseBank(h, L, P) {
   const bank = []
   for (let p = 0; p < L; p++) {
     const sub = new Float64Array(P)
+    let sum = 0
     for (let k = 0; k < P; k++) {
       const idx = p + k * L
-      sub[k] = idx < h.length ? h[idx] * L : 0
+      sub[k] = idx < h.length ? h[idx] : 0
+      sum += sub[k]
+    }
+    if (sum !== 0) {
+      for (let k = 0; k < P; k++) sub[k] /= sum
     }
     bank.push(sub)
   }
@@ -146,18 +151,23 @@ class PcmProcessor extends AudioWorkletProcessor {
     this._passthrough = false
 
     // Cutoff = 0.5/max(L,M) — anti-alias for the dominant decimation
+    if (L > 320) {
+      // Exotic hardware sample rate — fall back to streaming linear interpolation cleanly
+      this._linearMode = true
+      this._initialized = true
+      return
+    }
     const cutoff = 0.5 / Math.max(L, M)
-    // Keep taps per polyphase subfilter small but sufficient (≥ 4 periods of cutoff)
-    // For 44100→16000: L=160, M=441, P=8 → 160*8=1280 total taps  (sub-ms latency)
-    // For 48000→16000: L=1,   M=3,   P=64 → 64 total taps (passthrough Lp filter)
-    const P = Math.min(64, Math.max(8, Math.round(4 / cutoff / L)))
+    // Keep taps per polyphase subfilter sufficient for clean stopband attenuation
+    const P = Math.min(64, Math.max(8, Math.round(6 / cutoff / L)))
     this._P = P
 
     const numTaps = L * P
     const beta = 5.65
     const h = kaiserSincFilter(numTaps, cutoff, beta)
     this._bank = buildPolyphaseBank(h, L, P)
-    this._state = new Float64Array(P - 1)  // ring of past input samples
+    // State holds P most recent input samples: state[0] = newest, state[P-1] = oldest
+    this._state = new Float64Array(P)
     this._phase = 0
     this._inFrac = 0
     this._initialized = true
@@ -165,7 +175,7 @@ class PcmProcessor extends AudioWorkletProcessor {
 
   /**
    * Resample one input float32 channel → push output samples to _pushSample
-   * Uses rational polyphase (L:M) with ring-buffer state.
+   * Uses rational polyphase (L:M) with causal state ring.
    */
   _resampleChannel(channel) {
     if (this._passthrough) {
@@ -201,19 +211,14 @@ class PcmProcessor extends AudioWorkletProcessor {
     const P = this._P
     const state = this._state
 
-    // Append new input samples to state ring and process
-    // We iterate over input samples; for each input sample we append to history
-    // and then output any output samples whose next input pointer is now available.
     for (let i = 0; i < channel.length; i++) {
-      // Shift state left and push new sample at end
-      for (let k = 0; k < P - 1; k++) state[k] = state[k + 1]
-      state[P - 1] = channel[i]
+      // Shift history toward older indices and insert newest sample at state[0]
+      for (let k = P - 1; k > 0; k--) state[k] = state[k - 1]
+      state[0] = channel[i]
 
-      // Advance inFrac by L; output a sample for each M accumulated
       this._inFrac += L
       while (this._inFrac >= M) {
         this._inFrac -= M
-        // phase index = round((inFrac / M) * L)  — but we can track it directly
         const sub = bank[this._phase]
         let acc = 0
         for (let k = 0; k < P; k++) acc += state[k] * sub[k]
@@ -233,27 +238,22 @@ class PcmProcessor extends AudioWorkletProcessor {
 
   _emitChunk(isFinal) {
     const count = this._offset
-    if (count === 0 && !isFinal) return
-
-    // Fill remainder with zeros for flush chunk
-    for (let i = count; i < CHUNK_SAMPLES; i++) this._buffer[i] = 0
+    if (count === 0) return
 
     let sumSq = 0
     let peak = 0
     let clipCount = 0
-    for (let i = 0; i < count || (isFinal && i < CHUNK_SAMPLES); i++) {
-      const idx = Math.min(i, CHUNK_SAMPLES - 1)
-      const norm = this._buffer[idx] / 32768
+    for (let i = 0; i < count; i++) {
+      const norm = this._buffer[i] / 32768
       sumSq += norm * norm
       const abs = Math.abs(norm)
       if (abs > peak) peak = abs
       if (abs >= 0.99) clipCount++
     }
-    const effectiveLen = isFinal ? Math.max(1, count) : CHUNK_SAMPLES
-    const rms = Math.sqrt(sumSq / effectiveLen)
-    const clip_ratio = clipCount / effectiveLen
+    const rms = Math.sqrt(sumSq / count)
+    const clip_ratio = clipCount / count
 
-    const out = this._buffer.slice(0)
+    const out = this._buffer.slice(0, count)
     this.port.postMessage(
       {
         pcm: out.buffer,

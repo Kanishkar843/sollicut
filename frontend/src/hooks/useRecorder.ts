@@ -26,6 +26,7 @@ type StartOptions = {
   mode: AsrMode
   previewOnly?: boolean
   resampler?: 'linear' | 'fir_kaiser'
+  deviceId?: string
   onStreamResult?: (command: Command) => void
   onProcessing?: () => void
   onAudio: (blob: Blob, extension: string) => void
@@ -157,22 +158,23 @@ export function useRecorder() {
   }
 
   async function start(opts: StartOptions) {
-    const { projectId, mode, previewOnly = false, resampler = 'fir_kaiser', onStreamResult, onProcessing, onAudio, onError } = opts
+    const { projectId, mode, previewOnly = false, resampler = 'fir_kaiser', deviceId, onStreamResult, onProcessing, onAudio, onError } = opts
     stoppingRef.current = false
     setRecorderState('initializing')
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('This browser cannot record audio. Use a current browser on localhost or HTTPS.')
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 16000,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      })
+      const audioConstraints: MediaTrackConstraints = {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      }
+      if (deviceId) {
+        audioConstraints.deviceId = { exact: deviceId }
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints })
       if (!alive.current) {
         stream.getTracks().forEach((t) => t.stop())
         setRecorderState('cancelled')
@@ -228,11 +230,14 @@ export function useRecorder() {
 
     try {
       audioCtx = new AudioContext()
+      if (audioCtx.state === 'suspended' && typeof audioCtx.resume === 'function') {
+        await audioCtx.resume()
+      }
       if (!audioCtx.audioWorklet) {
         void audioCtx.close().catch(() => {})
         return false
       }
-      await audioCtx.audioWorklet.addModule('/pcm-processor.js')
+      await audioCtx.audioWorklet.addModule('/pcm-processor.js?v=2')
       if (!alive.current) {
         void audioCtx.close().catch(() => {})
         setRecorderState('cancelled')

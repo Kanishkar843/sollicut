@@ -682,6 +682,15 @@ async def voice_ws(
                         valid_len = len(pcm_buf) - (len(pcm_buf) % 2)
                         samples = np.frombuffer(pcm_buf[:valid_len], dtype=np.int16).astype(np.float32) / 32768.0
                         pcm_buf.clear()
+                        import logging
+                        pcm_rms = float(np.sqrt(np.mean(np.square(samples, dtype=np.float64)))) if samples.size else 0.0
+                        logging.getLogger("sollicut").info(
+                            "voice_ws stop: samples=%d (%.2fs) rms=%.5f mode=%s",
+                            samples.size,
+                            samples.size / SAMPLE_RATE,
+                            pcm_rms,
+                            mode,
+                        )
 
                         try:
                             project = claim(project_id)

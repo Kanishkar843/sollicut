@@ -6,6 +6,7 @@ import VoiceButton, { microphoneError } from './VoiceButton'
 import { TranscriptReview } from './components/voice/TranscriptReview'
 import { MicrophoneSettings } from './components/voice/MicrophoneSettings'
 import { operationLabel, type Command } from './api'
+import pcmProcessorCode from '../public/pcm-processor.js?raw'
 
 afterEach(() => {
   cleanup()
@@ -705,4 +706,57 @@ test('Phase 9 VoiceButton forwards linear resampler config to AudioWorklet', asy
   fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
   await screen.findByRole('button', { name: 'Stop recording' })
   expect(posted).toContainEqual({ type: 'config', resampler: 'linear' })
+})
+
+test('pcm-processor.js preserves audio amplitude and exact sample count at 44100 and 48000 Hz', () => {
+  const workletCode = pcmProcessorCode
+
+  for (const rate of [16000, 44100, 48000]) {
+    const chunks: { pcm: ArrayBuffer; rms: number }[] = []
+    let Registered: { new (): { port: { onmessage: ((ev: { data: unknown }) => void) | null }; process: (inputs: Float32Array[][]) => boolean } } | null = null
+    ;(globalThis as Record<string, unknown>).sampleRate = rate
+    ;(globalThis as Record<string, unknown>).AudioWorkletProcessor = class {
+      port = {
+        postMessage(d: { pcm?: ArrayBuffer; rms?: number }) {
+          if (d.pcm) chunks.push({ pcm: d.pcm, rms: d.rms ?? 0 })
+        },
+        onmessage: null,
+      }
+    }
+    ;(globalThis as Record<string, unknown>).registerProcessor = (_name: string, cls: typeof Registered) => {
+      Registered = cls
+    }
+    new Function(workletCode)()
+    expect(Registered).not.toBeNull()
+    const proc = new Registered!()
+
+    for (let i = 0; i < rate; i += 128) {
+      const len = Math.min(128, rate - i)
+      const ch = new Float32Array(len)
+      for (let j = 0; j < len; j++) {
+        ch[j] = 0.2 * Math.sin((2 * Math.PI * 440 * (i + j)) / rate)
+      }
+      proc.process([[ch]])
+    }
+    proc.port.onmessage?.({ data: { type: 'flush' } })
+    proc.process([[]])
+
+    let totalSamples = 0
+    let sumSq = 0
+    for (const c of chunks) {
+      const pcm = new Int16Array(c.pcm)
+      totalSamples += pcm.length
+      for (let i = 0; i < pcm.length; i++) {
+        const v = pcm[i] / 32768
+        sumSq += v * v
+      }
+    }
+    const rms = Math.sqrt(sumSq / totalSamples)
+    expect(Math.abs(totalSamples - 16000)).toBeLessThanOrEqual(2)
+    expect(rms).toBeGreaterThan(0.13)
+    expect(rms).toBeLessThan(0.15)
+  }
+  delete (globalThis as Record<string, unknown>).sampleRate
+  delete (globalThis as Record<string, unknown>).AudioWorkletProcessor
+  delete (globalThis as Record<string, unknown>).registerProcessor
 })

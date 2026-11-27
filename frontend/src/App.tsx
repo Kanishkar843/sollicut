@@ -823,6 +823,7 @@ export default function App() {
                   mode={asrMode}
                   previewOnly={true}
                   resampler={caps?.voice_profile?.resampler ?? 'fir_kaiser'}
+                  deviceId={micDeviceId}
                   onModeChange={setAsrMode}
                   onProcessing={() => {
                     setBusy(true)
