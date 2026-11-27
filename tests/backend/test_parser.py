@@ -77,6 +77,18 @@ def test_single_media_and_video_commands():
     trimmed = operations("Trim clip 1 from 1 to 4 seconds", count=2)
     assert trimmed["trim_clip"] == {"clip_index": 1, "trim_start": 1.0, "trim_end": 4.0}
 
+    trimmed_no_from = operations("Trim clip 2 2 to 6 seconds", count=2)
+    assert trimmed_no_from["trim_clip"] == {"clip_index": 2, "trim_start": 2.0, "trim_end": 6.0}
+
+    trimmed_to_end = operations("Cut clip 1 to 5 seconds", count=1)
+    assert trimmed_to_end["trim_clip"] == {"clip_index": 1, "trim_start": 0.0, "trim_end": 5.0}
+
+    bottom_offer = operations("Bottom la 20 percent offer nu podu", count=1)
+    assert bottom_offer["set_text_overlay"] == {"text": "20 percent offer", "placement": "bottom"}
+
+    center_offer = operations("Center la 15 percent offer", count=1)
+    assert center_offer["set_text_overlay"] == {"text": "15 percent offer", "placement": "center"}
+
     cut_start = operations("Cut first 2 seconds", count=1)
     assert cut_start["trim_clip"] == {"clip_index": 1, "cut_start_seconds": 2.0}
 

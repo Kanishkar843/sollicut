@@ -77,3 +77,21 @@ def test_mixed_media_trim_and_clip_audio_render(tmp_path, monkeypatch):
     assert (video["width"], video["height"], video["pix_fmt"]) == (720, 1280, "yuv420p")
     assert abs(float(meta["format"]["duration"]) - 4) < .2
     assert any(s["codec_type"] == "audio" for s in meta["streams"])
+
+
+def test_short_video_loop_with_clip_audio_and_music(tmp_path, monkeypatch):
+    monkeypatch.setenv("SOLLICUT_DATA_DIR", str(tmp_path))
+    generate()
+    project = storage.create()
+    folder = storage.project_dir(project.id)
+    _make_sample_video(folder / "assets/short.mp4", with_audio=True, duration=1.0)
+    project.assets.append(
+        Asset(filename="short.mp4", media_type="video", path="assets/short.mp4", width=640, height=480, duration_seconds=1.0)
+    )
+    project.settings.duration_seconds = 4
+    project.settings.keep_clip_audio = True
+    project.settings.music_enabled = True
+    output = render(project, 1)
+    meta = probe(output)
+    assert abs(float(meta["format"]["duration"]) - 4) < .2
+    assert any(s["codec_type"] == "audio" for s in meta["streams"])

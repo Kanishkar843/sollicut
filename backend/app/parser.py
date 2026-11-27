@@ -70,27 +70,35 @@ def parse(raw: str, media_count: int, has_reel: bool = False) -> ParsedCommand:
     if trim_match:
         clip_match = re.search(r"(?:clip|video)\s*(\d+)", text)
         clip_index = int(clip_match[1]) if clip_match else 1
-        range_match = re.search(r"from\s+(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)?\s+to\s+(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)?", text)
-        cut_first = re.search(r"(?:trim|cut|கட்)\s+(?:clip\s*\d+\s+)?(?:first|start)\s+(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?|விநாடி|வினாடி)?", text)
-        cut_last = re.search(r"(?:trim|cut|கட்)\s+(?:clip\s*\d+\s+)?(?:last|end)\s+(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?|விநாடி|வினாடி)?", text)
+        trim_scope = re.sub(r"\s+", " ", (text[:clip_match.start()] + " " + text[clip_match.end():])).strip() if clip_match else text
+        range_match = re.search(r"(?:from\s+)?(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)?\s+to\s+(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)?", trim_scope)
+        cut_first = re.search(r"(?:trim|cut|கட்)\s+(?:first|start)\s+(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?|விநாடி|வினாடி)?", trim_scope)
+        cut_last = re.search(r"(?:trim|cut|கட்)\s+(?:last|end)\s+(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?|விநாடி|வினாடி)?", trim_scope)
+        to_end = re.search(r"(?:trim|cut|கட்)\s+to\s+(\d+(?:\.\d+)?)\s*(?:s|secs?|seconds?)?", trim_scope)
         if range_match:
             start_s, end_s = float(range_match[1]), float(range_match[2])
             if end_s <= start_s:
                 return clarify("Trim end time must be greater than start time.")
             add("trim_clip", clip_index=clip_index, trim_start=start_s, trim_end=end_s)
-            duration_text = text[:range_match.start()] + text[range_match.end():]
+            duration_text = trim_scope[:range_match.start()] + trim_scope[range_match.end():]
         elif cut_first:
             cut_s = float(cut_first[1])
             if cut_s <= 0:
                 return clarify("Choose a positive number of seconds to trim.")
             add("trim_clip", clip_index=clip_index, cut_start_seconds=cut_s)
-            duration_text = text[:cut_first.start()] + text[cut_first.end():]
+            duration_text = trim_scope[:cut_first.start()] + trim_scope[cut_first.end():]
         elif cut_last:
             cut_s = float(cut_last[1])
             if cut_s <= 0:
                 return clarify("Choose a positive number of seconds to trim.")
             add("trim_clip", clip_index=clip_index, cut_end_seconds=cut_s)
-            duration_text = text[:cut_last.start()] + text[cut_last.end():]
+            duration_text = trim_scope[:cut_last.start()] + trim_scope[cut_last.end():]
+        elif to_end:
+            end_s = float(to_end[1])
+            if end_s <= 0.2:
+                return clarify("Trim end time must leave at least 0.2 seconds.")
+            add("trim_clip", clip_index=clip_index, trim_start=0.0, trim_end=end_s)
+            duration_text = trim_scope[:to_end.start()] + trim_scope[to_end.end():]
         else:
             return clarify("Say which clip and seconds to trim, like: trim clip 1 from 2 to 6 seconds.")
 
@@ -140,13 +148,16 @@ def parse(raw: str, media_count: int, has_reel: bool = False) -> ParsedCommand:
 
     quoted = re.search(r'["“]([^"”]+)["”]', raw)
     percent = re.search(r"(\d+(?:\.\d+)?)\s*(?:percent|%|சதவீதம்)", text)
-    placement = "end_card" if re.search(r"last|end|கடைசி", text) else "bottom"
+    explicit_bottom = bool(re.search(r"\bbottom\b|கீழே", text))
+    explicit_center = bool(re.search(r"\b(?:center|centre|middle)\b|நடு", text))
+    placement = "end_card" if re.search(r"last|end|கடைசி", text) else "center" if explicit_center else "bottom"
     overlay = None
     if quoted and re.search(TEXT + "|" + OFFER, text):
         overlay = quoted[1]
     elif percent and re.search(OFFER + "|" + TEXT, text):
         overlay = f"{percent[1]} percent offer" if not tamil else f"{percent[1]}% ஆஃபர்"
-        placement = "end_card"
+        if not explicit_bottom and not explicit_center:
+            placement = "end_card"
     elif re.search(TEXT, text):
         content = re.search(r"(?:text\s+(?:saying\s+)?|write\s+)(.+?)(?:\s+(?:at the end|at bottom|podu|pannu)|[.!]|$)", raw, re.I)
         if content:

@@ -47,6 +47,8 @@ async def generate(
         raise ValueError("Key not set. Configure GEMINI_API_KEY on the server to enable AI advertisements.")
     if not 3 <= duration_seconds <= 15:
         raise ValueError("Gemini Omni supports video durations between 3 and 15 seconds.")
+    if reference_images and len(reference_images) >= 2 and duration_seconds > 10:
+        raise ValueError("When using 2 reference photos, Gemini Omni supports durations up to 10 seconds.")
     if aspect_ratio not in {"9:16", "16:9"}:
         raise ValueError("Unsupported aspect ratio for Gemini Omni.")
 
@@ -84,6 +86,9 @@ async def generate(
         body = response.json()
     except ValueError as exc:
         raise RuntimeError("The provider returned an invalid JSON response.") from exc
+
+    if body.get("status") == "failed":
+        raise RuntimeError("The provider reported that video generation failed.")
 
     for step in body.get("steps", []):
         if step.get("type") != "model_output":

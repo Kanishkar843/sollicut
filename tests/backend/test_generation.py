@@ -29,6 +29,19 @@ def test_key_not_set(monkeypatch, tmp_path):
         asyncio.run(generation.generate("A flower shop ad", tmp_path / "out.mp4"))
 
 
+def test_two_reference_images_duration_guard(monkeypatch, tmp_path):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    with pytest.raises(ValueError, match="up to 10 seconds"):
+        asyncio.run(
+            generation.generate(
+                "Transition between bouquet photos",
+                tmp_path / "out.mp4",
+                duration_seconds=12,
+                reference_images=[(b"a", "image/jpeg"), (b"b", "image/jpeg")],
+            )
+        )
+
+
 def test_rest_video_extraction_and_schema(monkeypatch, tmp_path):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     assert generation.status()["configured"]

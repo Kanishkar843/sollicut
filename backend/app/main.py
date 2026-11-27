@@ -611,7 +611,11 @@ async def generate_job(project: ProjectState, body: GenerateRequest, ref_images:
         video_stream = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), None)
         if not video_stream:
             raise RuntimeError("Generated file contains no video stream.")
-        duration = float(info.get("format", {}).get("duration", body.duration_seconds))
+        raw_dur = info.get("format", {}).get("duration") or video_stream.get("duration")
+        try:
+            duration = float(raw_dur) if raw_dur not in (None, "N/A") else float(body.duration_seconds)
+        except ValueError:
+            duration = float(body.duration_seconds)
         previous = Snapshot(
             settings=project.settings.model_copy(deep=True),
             edit_history=list(project.edit_history),
@@ -662,6 +666,8 @@ async def generate_ad(project_id: str, body: GenerateRequest):
     try:
         if not generation.status()["configured"]:
             raise HTTPException(503, "Key not set. Configure GEMINI_API_KEY on the server.")
+        if len(body.reference_asset_ids) >= 2 and body.duration_seconds > 10:
+            raise HTTPException(422, "When using 2 reference photos, Gemini Omni supports durations up to 10 seconds.")
         quota(project_id, 100 * 1024 * 1024)
         ref_images: list[tuple[bytes, str]] = []
         pdir = storage.project_dir(project_id)
