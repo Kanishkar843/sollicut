@@ -8,10 +8,10 @@
 
 | Phase | Title | Status | Commit |
 |---|---|---|---|
-| **P0** | Baseline Audit & V2 Docs | ✅ COMPLETE | (this commit) |
-| **P1** | Anti-Aliased Resampler + Flush Handshake | 🔲 PENDING | — |
-| **P2** | Reliable WebSocket Transport | 🔲 PENDING | — |
-| **P3** | Silero VAD Integration | 🔲 PENDING | — |
+| **P0** | Baseline Audit & V2 Docs | ✅ COMPLETE | `f41bc1d` |
+| **P1** | Anti-Aliased Resampler + Flush Handshake | ✅ COMPLETE | `108b6da` |
+| **P2** | Reliable WebSocket Transport | ✅ COMPLETE | `23d68a4` |
+| **P3** | Silero VAD Integration | 🔄 IN PROGRESS | — |
 | **P4** | ASR Engine Upgrade (Tamil Kili / Whisper LV3T) | 🔲 PENDING | — |
 | **P5** | Multilingual Normalization V2 | 🔲 PENDING | — |
 | **P6** | Semantic Command Planner | 🔲 PENDING | — |

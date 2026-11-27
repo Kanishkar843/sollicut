@@ -13,6 +13,11 @@ INDIC_FILES = {
     "tokens.txt": f"{INDIC_BASE_URL}/tokens.txt",
 }
 
+SILERO_VAD_URL = (
+    "https://github.com/snakers4/silero-vad/raw/refs/heads/master"
+    "/src/silero_vad/data/silero_vad.onnx"
+)
+
 
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
@@ -68,6 +73,17 @@ def download_indicconformer(indic_dir: Path) -> bool:
         return False
 
 
+def download_silero_vad(model_root: Path) -> bool:
+    """Download the Silero VAD ONNX model (MIT license, no auth required)."""
+    dest = model_root / "silero_vad" / "silero_vad.onnx"
+    try:
+        _download_file(SILERO_VAD_URL, dest)
+        return True
+    except Exception as exc:
+        print(f"Warning: Silero VAD download failed: {exc}", file=sys.stderr)
+        return False
+
+
 if __name__ == "__main__":
     model = os.getenv("SOLLICUT_ASR_MODEL", "small").strip() or "small"
     model_root = Path(os.getenv("SOLLICUT_MODEL_DIR", "models"))
@@ -76,5 +92,8 @@ if __name__ == "__main__":
 
     ok_whisper = download_whisper(model, model_root)
     ok_indic = download_indicconformer(indic_dir) if indic_enabled else True
+    ok_vad = download_silero_vad(model_root)
     if not ok_whisper and not ok_indic:
         sys.exit(1)
+    if not ok_vad:
+        print("Warning: Silero VAD unavailable — will fall back to RMS gate.", file=sys.stderr)
