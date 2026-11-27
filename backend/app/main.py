@@ -10,10 +10,12 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from . import generation, media, storage
+from . import assets_catalog, effects, generation, media, storage
 from .models import (
     ApplyRequest,
+    ApplyTemplateRequest,
     Asset,
+    AttachAudioRequest,
     AutoCaptionRequest,
     EditOperation,
     GenerateRequest,
@@ -124,6 +126,7 @@ def capabilities():
         "renderer": media_status,
         "speech": {"engine": "faster-whisper", "status": speech.status, "error": speech.error},
         "tts": tts_engine.status(),
+        "cutout": effects.cutout_capabilities(),
         "limits": {
             "images": 5,
             "media_items": 5,
@@ -847,6 +850,87 @@ async def redo(project_id: str):
         return redo_restore(project)
     finally:
         busy.discard(project_id)
+
+
+@app.get("/api/assets-catalog")
+def read_assets_catalog():
+    return assets_catalog.get_catalog()
+
+
+@app.post("/api/projects/{project_id}/apply-template")
+async def apply_template(project_id: str, body: ApplyTemplateRequest):
+    project = claim(project_id)
+    result = None
+    try:
+        tpl = next((t for t in assets_catalog.TEMPLATES if t["id"] == body.template_id), None)
+        if not tpl:
+            raise HTTPException(404, "Template not found")
+        op = EditOperation(
+            type="apply_template",
+            parameters=tpl["settings"],
+            source_transcript=f"[template: {tpl['id']}]",
+        )
+        new_settings, new_assets = apply_operations(project, [op])
+        if not body.render or _media_count(project) == 0 or not media_status.get("available"):
+            previous = _snapshot(project)
+            project.settings = new_settings
+            project.assets = new_assets
+            project.undo_stack = (project.undo_stack + [previous])[-10:]
+            project.redo_stack.clear()
+            project.edit_history.append(op)
+            storage.save(project)
+            result = {"project": project}
+            return result
+        quota(project.id, 50 * 1024 * 1024)
+        job = _enqueue_job(project, f"Applying {tpl['name']}")
+        track(_run_render_job(project, new_settings, new_assets, [op], job))
+        result = {"job_id": job.id}
+        return result
+    finally:
+        if not result or "job_id" not in result:
+            busy.discard(project_id)
+
+
+@app.post("/api/projects/{project_id}/attach-catalog-audio")
+async def attach_catalog_audio(project_id: str, body: AttachAudioRequest):
+    project = claim(project_id)
+    result = None
+    try:
+        pack = next((a for a in assets_catalog.AUDIO_PACKS if a["id"] == body.audio_id), None)
+        if not pack:
+            raise HTTPException(404, "Audio pack not found")
+        src = storage.ROOT / "assets/demo" / pack["filename"]
+        if not src.is_file():
+            raise HTTPException(404, "Audio pack file missing; run generate_demo_assets.py")
+        previous = _snapshot(project)
+        pdir = storage.project_dir(project_id)
+        for existing in [a for a in project.assets if a.media_type == "audio"]:
+            project.assets.remove(existing)
+        asset_id = str(uuid4())
+        dest = pdir / "assets" / f"{asset_id}.wav"
+        shutil.copy2(src, dest)
+        asset = Asset(
+            id=asset_id,
+            filename=pack["filename"],
+            media_type="audio",
+            path=f"assets/{dest.name}",
+            duration_seconds=float(pack["duration_seconds"]),
+        )
+        project.assets.append(asset)
+        project.settings.music_enabled = True
+        project.undo_stack = (project.undo_stack + [previous])[-10:]
+        project.redo_stack.clear()
+        if not body.render or _media_count(project) == 0 or not media_status.get("available"):
+            storage.save(project)
+            result = {"project": project}
+            return result
+        job = _enqueue_job(project, f"Attaching {pack['name']}")
+        track(_run_render_job(project, project.settings.model_copy(deep=True), [a.model_copy(deep=True) for a in project.assets], [], job))
+        result = {"job_id": job.id}
+        return result
+    finally:
+        if not result or "job_id" not in result:
+            busy.discard(project_id)
 
 
 @app.post("/api/projects/{project_id}/tts")
