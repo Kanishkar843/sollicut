@@ -1,4 +1,4 @@
-# Executed verification - 27 November 2026
+﻿# Executed verification - 27 November 2026
 
 - `docker compose up --build -d --wait --wait-timeout 120`: healthy, no .env/API keys. Initial dependency layers were built with the host's trusted CA supplied as an optional BuildKit secret; the subsequent Compose build reused them.
 - `docker compose exec -T sollicut python -m pytest tests/backend -q`: 62 passed in 5.24 seconds. Includes 48 parser cases, storage, upload/error/undo tests, real FFmpeg render and RAQM overlay test.
@@ -13,4 +13,6 @@
 Native Windows renderer tests initially failed because Pillow had no RAQM. Linux Docker tests passed. This is why Docker is the supported runtime.
 
 Not verified: real participant Tanglish/Tamil microphone workflow, audible/visible playback acceptance, independent person's clone, YouTube publication, final hackathon submission. Do not describe the entire P0 checklist as passed.
-`nFresh-clone attempt: the plain Compose build encountered this host's TLS interception when fetching npm/model dependencies. A fresh-clone build with the optional trusted CA secret was started; independent-person acceptance remains pending. The original application at localhost:8080 remains healthy.
+
+Fresh-clone attempt: the plain Compose build encountered this host's TLS interception when fetching npm/model dependencies. A fresh-clone build with the optional trusted CA secret was started; independent-person acceptance remains pending. The original application at localhost:8080 remains healthy.
+
