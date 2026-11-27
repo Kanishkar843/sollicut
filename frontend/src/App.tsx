@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   AudioLines,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -31,7 +30,7 @@ import {
 import GeneratePanel from './GeneratePanel'
 import Timeline from './Timeline'
 import VoiceButton from './VoiceButton'
-import { api, operationLabel, type Capabilities, type Command, type Parsed, type Project } from './api'
+import { api, operationLabel, type AsrMode, type Capabilities, type Command, type Parsed, type Project } from './api'
 
 export function validateMedia(files: File[], count: number): string | null {
   if (files.length + count > 5) return 'Choose up to 5 photos or video clips in total.'
@@ -63,7 +62,8 @@ export default function App() {
   const [stage, setStage] = useState('Ready')
   const [error, setError] = useState('')
   const [parsed, setParsed] = useState<Parsed | null>(null)
-  const [language, setLanguage] = useState('')
+  const [secondaryTranscript, setSecondaryTranscript] = useState<string | null>(null)
+  const [asrMode, setAsrMode] = useState<AsrMode>('tanglish')
   const [resetting, setResetting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<InspectorTab>('text')
@@ -217,35 +217,42 @@ export default function App() {
     }
   }
 
+  function handleVoiceResult(result: Command) {
+    setParsed(result.parsed_command)
+    setSecondaryTranscript(result.secondary_transcript ?? null)
+    if (result.parsed_command.requires_clarification) {
+      setStage('A little more detail')
+      setBusy(false)
+    } else if (result.job_id) {
+      setStage('Rendering reel')
+      setJobId(result.job_id)
+    } else {
+      if (result.project) setProject(result.project)
+      if (result.download_url) {
+        const a = document.createElement('a')
+        a.href = result.download_url
+        a.download = 'SolliCut-reel.mp4'
+        a.click()
+      }
+      setStage(result.download_url ? 'Ready to download' : 'Previous edit restored')
+      setBusy(false)
+    }
+  }
+
   async function handleAudio(blob: Blob, extension: string) {
     if (!project) return
     setBusy(true)
     setError('')
     setStage('Processing speech')
     setParsed(null)
+    setSecondaryTranscript(null)
     try {
       const form = new FormData()
       form.append('file', blob, `command.${extension}`)
-      if (language) form.append('language_hint', language)
+      form.append('asr_mode', asrMode)
+      if (asrMode !== 'tanglish') form.append('language_hint', asrMode)
       const result = await api<Command>(`/projects/${project.id}/voice-command`, { method: 'POST', body: form })
-      setParsed(result.parsed_command)
-      if (result.parsed_command.requires_clarification) {
-        setStage('A little more detail')
-        setBusy(false)
-      } else if (result.job_id) {
-        setStage('Rendering reel')
-        setJobId(result.job_id)
-      } else {
-        if (result.project) setProject(result.project)
-        if (result.download_url) {
-          const a = document.createElement('a')
-          a.href = result.download_url
-          a.download = 'SolliCut-reel.mp4'
-          a.click()
-        }
-        setStage(result.download_url ? 'Ready to download' : 'Previous edit restored')
-        setBusy(false)
-      }
+      handleVoiceResult(result)
     } catch (e) {
       setError((e as Error).message)
       setBusy(false)
@@ -745,20 +752,27 @@ export default function App() {
                     <span className="eyebrow">VOICE DIRECTOR</span>
                     <h2>{project?.current_output ? 'What would you change?' : 'What should we create?'}</h2>
                   </div>
-                  <div className="select-wrap">
-                    <select aria-label="Speech language" value={language} disabled={busy} onChange={(e) => setLanguage(e.target.value)}>
-                      <option value="">Auto language</option>
-                      <option value="ta">Tamil / Tanglish</option>
-                      <option value="en">English</option>
-                    </select>
-                    <ChevronDown size={14} />
-                  </div>
                 </div>
 
                 <VoiceButton
                   disabled={busy || mediaAssets.length < 1 || !speechReady}
+                  projectId={project?.id}
+                  mode={asrMode}
+                  onModeChange={setAsrMode}
+                  onProcessing={() => {
+                    setBusy(true)
+                    setError('')
+                    setStage('Processing speech')
+                    setParsed(null)
+                    setSecondaryTranscript(null)
+                  }}
+                  onStreamResult={handleVoiceResult}
                   onAudio={(b, e) => void handleAudio(b, e)}
-                  onError={setError}
+                  onError={(msg) => {
+                    setError(msg)
+                    setBusy(false)
+                    setStage('Ready')
+                  }}
                 />
 
                 <div className="status" role="status">
@@ -796,6 +810,12 @@ export default function App() {
                   <div className="interpretation">
                     <span className="eyebrow">{parsed.requires_clarification ? 'LET’S CLARIFY' : 'I UNDERSTOOD'}</span>
                     <blockquote>{parsed.original_transcript}</blockquote>
+                    {secondaryTranscript && asrMode === 'tanglish' && (
+                      <details className="secondary-transcript">
+                        <summary>Dual-ASR Tamil pass</summary>
+                        <span>{secondaryTranscript}</span>
+                      </details>
+                    )}
                     {parsed.requires_clarification ? (
                       <p>{parsed.clarification_question}</p>
                     ) : (
@@ -1227,7 +1247,7 @@ export default function App() {
                       project={project}
                       caps={caps}
                       busy={busy}
-                      languageHint={language}
+                      languageHint={asrMode === 'tanglish' ? '' : asrMode}
                       onJobStarted={(id, st) => {
                         setBusy(true)
                         setStage(st)

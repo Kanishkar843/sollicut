@@ -247,3 +247,168 @@ test('AI Ad reference picker caps Gemini duration at 10s when 2 photos selected'
   expect(slider.max).toBe('10')
   expect(slider.value).toBe('10')
 })
+
+test('3-way language mode selector defaults to Tanglish and switches modes', () => {
+  const onModeChange = vi.fn()
+  render(<VoiceButton disabled={false} mode="tanglish" onModeChange={onModeChange} onAudio={vi.fn()} onError={vi.fn()} />)
+  const tanglishBtn = screen.getByRole('button', { name: 'Tanglish' })
+  const tamilBtn = screen.getByRole('button', { name: 'தமிழ்' })
+  const englishBtn = screen.getByRole('button', { name: 'English' })
+  expect(tanglishBtn).toHaveAttribute('aria-pressed', 'true')
+  expect(tamilBtn).toHaveAttribute('aria-pressed', 'false')
+  fireEvent.click(tamilBtn)
+  expect(onModeChange).toHaveBeenCalledWith('ta')
+  fireEvent.click(englishBtn)
+  expect(onModeChange).toHaveBeenCalledWith('en')
+})
+
+test('WebSocket AudioWorklet streaming sends PCM frames, stop control, and renders dual transcript', async () => {
+  const sentMessages: unknown[] = []
+  const wsRef: {
+    current: {
+      binaryType: string
+      readyState: number
+      onopen: (() => void) | null
+      onmessage: ((ev: { data: string }) => void) | null
+      onerror: (() => void) | null
+      onclose: (() => void) | null
+      send: (data: unknown) => void
+      close: () => void
+    } | null
+  } = { current: null }
+
+  class MockWebSocket {
+    static OPEN = 1
+    binaryType = 'blob'
+    readyState = 1
+    onopen: (() => void) | null = null
+    onmessage: ((ev: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+    url: string
+    constructor(url: string) {
+      this.url = url
+      wsRef.current = this
+      queueMicrotask(() => this.onopen?.())
+    }
+    send(data: unknown) {
+      sentMessages.push(data)
+    }
+    close() {
+      this.readyState = 3
+    }
+  }
+
+  const workletRef: { onmessage: ((ev: { data: { pcm: ArrayBuffer; rms: number } }) => void) | null } = { onmessage: null }
+  class MockWorkletNode {
+    port = {
+      set onmessage(fn: ((ev: { data: { pcm: ArrayBuffer; rms: number } }) => void) | null) {
+        workletRef.onmessage = fn
+      },
+    }
+    disconnect() {}
+  }
+  class MockAudioContext {
+    state = 'running'
+    audioWorklet = { addModule: vi.fn().mockResolvedValue(undefined) }
+    createMediaStreamSource() {
+      return { connect: vi.fn() }
+    }
+    close() {
+      this.state = 'closed'
+      return Promise.resolve()
+    }
+  }
+
+  vi.stubGlobal('WebSocket', MockWebSocket)
+  vi.stubGlobal('AudioContext', MockAudioContext)
+  vi.stubGlobal('AudioWorkletNode', MockWorkletNode)
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      getUserMedia: vi.fn().mockResolvedValue({
+        getTracks: () => [{ stop: vi.fn() }],
+        getAudioTracks: () => [{ onended: null }],
+      }),
+    },
+  })
+
+  const onStreamResult = vi.fn()
+  const onProcessing = vi.fn()
+  render(
+    <VoiceButton
+      disabled={false}
+      projectId="proj-123"
+      mode="tanglish"
+      onModeChange={vi.fn()}
+      onStreamResult={onStreamResult}
+      onProcessing={onProcessing}
+      onAudio={vi.fn()}
+      onError={vi.fn()}
+    />,
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+  await screen.findByRole('button', { name: 'Stop recording' })
+
+  expect(wsRef.current).not.toBeNull()
+  const pcmBuf = new Int16Array([1000, -1000, 1200, -1200]).buffer
+  workletRef.onmessage?.({ data: { pcm: pcmBuf, rms: 0.08 } })
+  expect(sentMessages[0]).toBe(pcmBuf)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+  expect(onProcessing).toHaveBeenCalled()
+  expect(sentMessages[1]).toBe(JSON.stringify({ event: 'stop' }))
+
+  wsRef.current?.onmessage?.({
+    data: JSON.stringify({
+      transcript: 'Offer ah 25 percent nu maathu.',
+      secondary_transcript: 'மியூசிக் கம்மி பண்ணு',
+      parsed_command: {
+        original_transcript: 'Offer ah 25 percent nu maathu.',
+        operations: [{ id: 'op1', type: 'set_text_overlay', parameters: { text: '25 percent offer', placement: 'end_card' } }],
+        requires_clarification: false,
+        clarification_question: null,
+        warnings: [],
+      },
+    }),
+  })
+  expect(onStreamResult).toHaveBeenCalledWith(expect.objectContaining({ transcript: 'Offer ah 25 percent nu maathu.' }))
+})
+
+test('falls back to MediaRecorder when AudioWorklet is unavailable', async () => {
+  class MockMediaRecorder {
+    static isTypeSupported = () => true
+    state = 'inactive'
+    mimeType = 'audio/webm'
+    ondataavailable: ((e: { data: Blob }) => void) | null = null
+    onerror: (() => void) | null = null
+    onstop: (() => void) | null = null
+    start() {
+      this.state = 'recording'
+    }
+    stop() {
+      this.state = 'inactive'
+      this.ondataavailable?.({ data: new Blob(['abc'], { type: 'audio/webm' }) })
+      this.onstop?.()
+    }
+  }
+  vi.stubGlobal('AudioContext', undefined)
+  vi.stubGlobal('MediaRecorder', MockMediaRecorder)
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      getUserMedia: vi.fn().mockResolvedValue({
+        getTracks: () => [{ stop: vi.fn() }],
+        getAudioTracks: () => [{ onended: null }],
+      }),
+    },
+  })
+
+  const onAudio = vi.fn()
+  render(<VoiceButton disabled={false} projectId="proj-123" mode="en" onAudio={onAudio} onError={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+  await screen.findByRole('button', { name: 'Stop recording' })
+  fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
+  expect(onAudio).toHaveBeenCalledWith(expect.any(Blob), 'webm')
+})
