@@ -33,39 +33,39 @@ Speak it. Cut it. Sell it.  |  Round 2 prototype
 
 The problem
 
-A small seller has product photos and an offer. Making a reel still asks them to learn timelines, keyframes and editing controls.
+A small seller has product photos and clips. Making a reel still asks them to learn complex editing controls and keyframes.
 
 The solution
 
-Say the creative instruction in a comfortable language. SolliCut maps it to validated edits and renders the seller's own photos.
+Say the creative instruction in a comfortable language. SolliCut maps it to validated edits and renders the seller's own media.
 
-Programmatic video creation. No diffusion model, no paid AI key, no invented footage.
+Programmatic photo & video reel creation. Keyless core editing; optional Gemini Omni ad generation only if configured.
 
 SolliCut
 
 USERS AND WORKFLOW
 
-A home baker's next offer reel.
+A small seller's next offer reel.
 
 Speak it. Cut it. Sell it.  |  Round 2 prototype
 
 03 / 07
 
-Initial users: home bakers, boutiques, florists, local retailers and beauty professionals in Tamil Nadu.
+Initial users: boutiques, florists, beauty studios, local retailers, home kitchens and bakeries in Tamil Nadu.
 
 "Indha photos ellathayum use panni oru 15 seconds Instagram reel create pannu. Smooth zoom effects podu. Background music add pannu. Last la 20 percent offer nu text podu."
 
-Upload 3-5 photos
+Upload 1-5 clips
 
 Speak your idea
 
-Preview the reel
+Preview & timeline
 
 Say another edit
 
 Undo / download
 
-Follow-up: change the offer to 25 percent and reduce the background music.
+Follow-up: change the offer to 25 percent, reduce music, trim or reorder clips.
 
 SolliCut
 
@@ -167,11 +167,11 @@ Speak it. Cut it. Sell it.  |  Round 2 prototype
 
 Verified in automated tests
 
-Multilingual command parsing
-Validated uploads and project storage
-Real vertical H.264 / AAC MP4 rendering
-Tamil overlay generation with libraqm
-Undo state and UI controls
+Multilingual voice command parsing
+Photo and MP4/MOV/WebM clip rendering
+Clip trim, reorder, music & audio mixing
+Tamil overlay shaping with libraqm
+Studio timeline, undo & keyless setup
 
 Still needs human acceptance
 
@@ -180,7 +180,7 @@ Tanglish intent success benchmark
 Independent person's fresh clone
 Public/unlisted demo under 3 minutes
 
-Deferred: advanced timelines, video trimming, accounts, payments, diffusion video generation and additional languages.
+Optional Gemini Omni 1.2 Flash ad tab shows Key not set without credentials; live cloud generation is untested without a key.
 
 Submission cutoff supplied by participant: 30 Nov 2026, 11:59 pm IST. VERIFY in the authenticated dashboard; the public page currently differs.
 

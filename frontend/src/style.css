@@ -69,7 +69,7 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 .preview-stage{background:#121512;border:1px solid #262c22;border-radius:14px;padding:14px 16px}
 .stage-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .preview-label{font-size:10px;letter-spacing:1.4px;color:#92a189}
-.video-frame{width:100%;max-height:460px;aspect-ratio:9/16;max-width:270px;margin:0 auto;position:relative;background:#070908;border:1px solid #262d23;border-radius:12px;overflow:hidden}
+.video-frame{width:100%;max-height:360px;aspect-ratio:9/16;max-width:210px;margin:0 auto;position:relative;background:#070908;border:1px solid #262d23;border-radius:12px;overflow:hidden}
 .video-frame video{display:block;width:100%;height:100%;object-fit:contain;background:#070908}
 .empty-preview{height:100%;padding:20px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;background:radial-gradient(ellipse at 50% 28%,#202a1a,transparent 72%)}
 .empty-preview h3{font-size:19px;font-weight:650;margin:16px 0 8px;letter-spacing:-.4px}
@@ -95,7 +95,7 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 .section-heading p{font-size:12px;color:#99a590;margin:4px 0 0}
 .count{font-size:12px;color:#c9d7b6;background:#1d241a;border:1px solid #303a2a;padding:4px 10px;border-radius:999px;white-space:nowrap}
 .photo-area{margin-top:12px;border:1px dashed #3a4632;border-radius:10px;background:#161b15}
-.dropzone{width:100%;border:0;background:none;padding:24px 16px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#e7ede2}
+.dropzone{width:100%;border:0;background:none;padding:16px 14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;color:#e7ede2}
 .upload-symbol{width:46px;height:46px;display:grid;place-items:center;border-radius:12px;background:#242e1d;color:#d7ef41;margin-bottom:4px}
 .dropzone strong{font-size:14px;font-weight:600}
 .dropzone span{font-size:12px;color:#96a48d}

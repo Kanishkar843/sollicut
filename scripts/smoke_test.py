@@ -18,6 +18,9 @@ def smoke(url: str, destination: Path):
     with httpx.Client(base_url=url, timeout=60) as client:
         health = client.get("/api/health").raise_for_status().json()
         assert health["renderer"]["available"], health
+        caps = client.get("/api/capabilities").raise_for_status().json()
+        assert caps["renderer"]["available"], caps
+        assert "generation" in caps, caps
         pid = client.post("/api/projects").raise_for_status().json()["id"]
         endpoint = f"/api/projects/{pid}"
         timings = {}
