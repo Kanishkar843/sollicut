@@ -1,19 +1,23 @@
 import asyncio
 import contextlib
+import json
 import shutil
+import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
+import numpy as np
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from . import media, storage
 from .models import ApplyRequest, Asset, EditOperation, GenerateRequest, Job, ProjectState, ReelSettings, Snapshot, VisualEditRequest
-from .parser import parse
-from .speech import DualSpeechRouter
+from .parser import parse, parse_dual_command
+from .speech import DualSpeechRouter, SAMPLE_RATE
 from . import generation
 
 Image.MAX_IMAGE_PIXELS = 50_000_000
@@ -537,13 +541,144 @@ async def undo(project_id: str):
         busy.discard(project_id)
 
 
+MAX_WS_PCM_BYTES = 30 * SAMPLE_RATE * 2  # 30s at 16 kHz mono Int16 = 960,000 bytes
+
+
+def _resolve_asr_mode(mode: str | None, language_hint: str | None) -> str:
+    if mode in {"tanglish", "ta", "en"}:
+        return mode
+    if language_hint in {"ta", "en"}:
+        return language_hint
+    return "tanglish"
+
+
+def _read_wav_pcm_sync(wav_path: Path) -> np.ndarray | None:
+    """Fast-path 16 kHz mono 16-bit PCM WAV directly into float32; return None if transcode needed."""
+    try:
+        with wave.open(str(wav_path), "rb") as recording:
+            if recording.getnchannels() != 1 or recording.getsampwidth() != 2 or recording.getframerate() != SAMPLE_RATE:
+                return None
+            duration = recording.getnframes() / SAMPLE_RATE
+            if not 0.2 <= duration <= 30.5:
+                raise ValueError("Record between 0.2 and 30 seconds")
+            raw = recording.readframes(recording.getnframes())
+        return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    except wave.Error:
+        return None
+
+
+@app.websocket("/ws/voice/{project_id}")
+async def voice_ws(websocket: WebSocket, project_id: str, mode: str = "tanglish"):
+    await websocket.accept()
+    if mode not in {"tanglish", "ta", "en"}:
+        await websocket.send_json({"error": "Invalid mode. Use tanglish, ta, or en."})
+        await websocket.close(code=4002)
+        return
+    try:
+        storage.load(project_id)
+    except (ValueError, FileNotFoundError):
+        await websocket.send_json({"error": "Project not found"})
+        await websocket.close(code=4004)
+        return
+
+    pcm_buf = bytearray()
+    claimed = False
+    result = None
+    try:
+        while True:
+            message = await websocket.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+            if "bytes" in message and message["bytes"] is not None:
+                chunk = message["bytes"]
+                if len(pcm_buf) + len(chunk) > MAX_WS_PCM_BYTES:
+                    pcm_buf.clear()
+                    await websocket.send_json({"error": "Recording exceeds the 30-second limit."})
+                    await websocket.close(code=1009)
+                    return
+                pcm_buf.extend(chunk)
+            elif "text" in message and message["text"] is not None:
+                try:
+                    payload = json.loads(message["text"])
+                except json.JSONDecodeError:
+                    await websocket.send_json({"error": "Invalid JSON control frame."})
+                    await websocket.close(code=1003)
+                    return
+                event = payload.get("event")
+                if event == "cancel":
+                    pcm_buf.clear()
+                    await websocket.close(code=1000)
+                    return
+                if event == "stop":
+                    valid_len = len(pcm_buf) - (len(pcm_buf) % 2)
+                    samples = np.frombuffer(pcm_buf[:valid_len], dtype=np.int16).astype(np.float32) / 32768.0
+                    pcm_buf.clear()
+
+                    try:
+                        project = claim(project_id)
+                        claimed = True
+                        dual_res = await speech.transcribe_pcm(samples, mode=mode)  # type: ignore[arg-type]
+                    except HTTPException as exc:
+                        await websocket.send_json({"error": exc.detail})
+                        await websocket.close(code=1000)
+                        return
+                    except ValueError as exc:
+                        await websocket.send_json({"error": str(exc)})
+                        await websocket.close(code=1000)
+                        return
+                    except (RuntimeError, OSError):
+                        await websocket.send_json({"error": speech.error or "Transcription failed. Check the recording and try again."})
+                        await websocket.close(code=1000)
+                        return
+
+                    try:
+                        parsed = parse_dual_command(dual_res, project)
+                        result = dispatch(project, parsed)
+                    except HTTPException as exc:
+                        await websocket.send_json({"error": exc.detail})
+                        await websocket.close(code=1000)
+                        return
+
+                    secondary = (
+                        dual_res.tamil_transcript
+                        if mode == "tanglish" and dual_res.tamil_transcript and dual_res.tamil_transcript != dual_res.primary_text
+                        else None
+                    )
+                    response_payload = {
+                        **result,
+                        "transcript": dual_res.primary_text,
+                        "secondary_transcript": secondary,
+                        "language_mode": parsed.language_mode,
+                        "asr_mode": mode,
+                        "engines_used": dual_res.engines_used,
+                        "asr_elapsed_ms": int(round(dual_res.elapsed_seconds * 1000)),
+                    }
+                    await websocket.send_json(jsonable_encoder(response_payload))
+                    await websocket.close(code=1000)
+                    return
+    except WebSocketDisconnect:
+        pass
+    finally:
+        pcm_buf.clear()
+        if claimed and (not result or "job_id" not in result):
+            busy.discard(project_id)
+
+
 @app.post("/api/projects/{project_id}/voice-command")
-async def voice(project_id: str, file: UploadFile = File(...), language_hint: str | None = Form(None), mode: str = Form("edit")):
+async def voice(
+    project_id: str,
+    file: UploadFile = File(...),
+    language_hint: str | None = Form(None),
+    mode: str = Form("edit"),
+    asr_mode: str | None = Form(None),
+):
     project = claim(project_id)
     result, path = None, None
     try:
-        if language_hint not in {None, "ta", "en"}:
-            raise HTTPException(422, "Language must be Tamil, English or automatic")
+        if language_hint not in {None, "", "ta", "en", "tanglish"}:
+            raise HTTPException(422, "Language must be Tamil, English, Tanglish or automatic")
+        resolved_asr_mode = _resolve_asr_mode(asr_mode or (mode if mode in {"tanglish", "ta", "en"} else None), language_hint)
+        action_mode = "generate" if mode == "generate" else "edit"
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in {".webm", ".ogg", ".mp4", ".m4a", ".wav"} or not (file.content_type or "").split(";")[0] in {"audio/webm", "video/webm", "audio/ogg", "audio/mp4", "video/mp4", "audio/wav", "audio/x-wav"}:
             raise HTTPException(415, "Unsupported microphone recording format")
@@ -551,27 +686,40 @@ async def voice(project_id: str, file: UploadFile = File(...), language_hint: st
         path = storage.project_dir(project_id) / "audio" / f"{uuid4()}{suffix}"
         await receive(file, path, 20 * 1024 * 1024)
         try:
-            info = await asyncio.to_thread(media.probe, path)
-            if not any(s["codec_type"] == "audio" for s in info["streams"]):
-                raise ValueError("No audio stream")
-            # MediaRecorder WebM may omit duration. Decode to bounded PCM and measure it.
-            wav = path.with_suffix(".decoded.wav")
-            await asyncio.to_thread(media.run, ["ffmpeg", "-v", "error", "-y", "-i", str(path), "-vn", "-t", "31", "-ar", "16000", "-ac", "1", str(wav)], 35)
-            import wave
-            with wave.open(str(wav)) as recording:
-                duration = recording.getnframes() / recording.getframerate()
-            if not .2 <= duration <= 30.5:
-                raise ValueError("Record between 0.2 and 30 seconds")
-            transcript = await speech.transcribe(wav, language_hint)
+            samples = await asyncio.to_thread(_read_wav_pcm_sync, path) if suffix == ".wav" else None
+            if samples is None:
+                info = await asyncio.to_thread(media.probe, path)
+                if not any(s["codec_type"] == "audio" for s in info["streams"]):
+                    raise ValueError("No audio stream")
+                # MediaRecorder WebM may omit duration. Decode to bounded PCM and measure it.
+                wav = path.with_suffix(".decoded.wav")
+                await asyncio.to_thread(media.run, ["ffmpeg", "-v", "error", "-y", "-i", str(path), "-vn", "-t", "31", "-ar", "16000", "-ac", "1", str(wav)], 35)
+                samples = await asyncio.to_thread(_read_wav_pcm_sync, wav)
+                if samples is None:
+                    raise ValueError("Could not decode audio stream")
+            dual_res = await speech.transcribe_pcm(samples, mode=resolved_asr_mode)  # type: ignore[arg-type]
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
         except (RuntimeError, OSError):
             raise HTTPException(503, speech.error or "Transcription failed. Check the recording and try again.") from None
-        if mode == "generate":
-            return {"generation_prompt": transcript.text, "transcript": transcript.text, "requires_confirmation": True}
-        parsed = parse(transcript.text, _media_count(project), bool(project.current_output))
+        if action_mode == "generate":
+            return {"generation_prompt": dual_res.primary_text, "transcript": dual_res.primary_text, "requires_confirmation": True}
+        parsed = parse_dual_command(dual_res, project)
         result = dispatch(project, parsed)
-        return {**result, "transcript": transcript.text, "language": transcript.language, "asr_seconds": transcript.elapsed_seconds}
+        secondary = (
+            dual_res.tamil_transcript
+            if resolved_asr_mode == "tanglish" and dual_res.tamil_transcript and dual_res.tamil_transcript != dual_res.primary_text
+            else None
+        )
+        return {
+            **result,
+            "transcript": dual_res.primary_text,
+            "secondary_transcript": secondary,
+            "language": parsed.language_mode,
+            "asr_mode": resolved_asr_mode,
+            "engines_used": dual_res.engines_used,
+            "asr_seconds": dual_res.elapsed_seconds,
+        }
     finally:
         if path:
             path.unlink(missing_ok=True)
