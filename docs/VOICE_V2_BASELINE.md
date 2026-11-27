@@ -144,3 +144,31 @@ df898df feat(api): add 16kHz PCM WebSocket voice stream and mode-aware HTTP fall
 bb7df36 feat(asr): implement IndicConformer-TA + faster-whisper small dual speech router
 2b3091f chore(asr): add sherpa-onnx, rapidfuzz, and dual-model download config
 ```
+
+---
+
+## 8. Synthetic Voice & NLU Benchmark (`NOT_HUMAN`)
+
+> Measured: 2026-11-27 via `python -m pytest tests/voice` and `python -m scripts.benchmark_voice --with-asr --max-per-mode 10`.
+> **IMPORTANT:** All automated benchmarks below use text fixtures and Windows SAPI en-US TTS synthesis (`NOT_HUMAN`). Native Tamil human microphone recognition remains **`NEEDS HUMAN VERIFICATION`**.
+
+### 8.1 NLU Determinism & Normalization Benchmark (100 Cases, `NOT_HUMAN`)
+
+| Mode | Cases | Passed | Accuracy | Notes |
+|---|---:|---:|---:|---|
+| `en` (English) | 40 | 40 | **100.0%** | Includes trim, reorder, music, overlay, duration limits, clarification |
+| `tanglish` (Code-switched) | 35 | 35 | **100.0%** | Includes Tamil loanword/phonetic variants (`come me`, `panu`, `maathu`, numbers) |
+| `ta` (Tamil Unicode) | 25 | 25 | **100.0%** | Includes Tamil numerals, loanwords, festival offers, undo/brightness/clarification |
+| **Total** | **100** | **100** | **100.0%** | Fixture: `tests/fixtures/voice_manifest.json` |
+
+### 8.2 ASR Engine WER / CER on Synthetic TTS (`NOT_HUMAN`)
+
+Audio generated in temporary directory via Windows SAPI (`System.Speech.Synthesis`, en-US voice) and discarded immediately after inference.
+
+| Engine | Mode | Samples | Avg WER | Avg CER | Notes |
+|---|---|---:|---:|---:|---|
+| `faster-whisper` (`small`, INT8) | `en` | 10 | **0.0200 (2.0%)** | 0.0677 | Trailing punctuation accounts for CER delta (`reel.` vs `reel`) |
+| `faster-whisper` (`small`, INT8) | `tanglish` | 10 | **0.2383 (23.8%)** | 0.1365 | `tan-001`–`tan-003` achieved 0.00 WER with Tanglish primer; en-US TTS mispronounces isolated Tamil number words |
+| `indicconformer-ta` (INT8 ONNX) | `ta` | — | **NEEDS HUMAN VERIFICATION** | **NEEDS HUMAN VERIFICATION** | No Tamil TTS voice installed; requires live Tamil speaker audio |
+| `indicconformer-ta` (INT8 ONNX) | `tanglish` | 10 | n/a (Tamil script vs Latin ref) | 1.1593 (cross-script) | Outputs Tamil Unicode transliteration; fused cleanly by `parse_dual_command()` |
+| `whisper-large-v3-turbo` (`accuracy`) | All | — | **NEEDS HUMAN VERIFICATION** | **NEEDS HUMAN VERIFICATION** | Model weights (~1.5 GB) not downloaded on local test host |
