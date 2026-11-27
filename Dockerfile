@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM python:3.11-slim-bookworm AS dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libraqm0 fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libraqm0 fonts-dejavu-core espeak-ng && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY backend/requirements.lock backend/requirements.lock
 RUN --mount=type=secret,id=corporate_ca if [ -f /run/secrets/corporate_ca ]; then export PIP_CERT=/run/secrets/corporate_ca; fi; pip install --no-cache-dir -r backend/requirements.lock

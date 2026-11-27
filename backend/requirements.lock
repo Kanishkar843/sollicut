@@ -23,6 +23,7 @@ idna==3.20
 iniconfig==2.3.1
 numpy==2.4.6
 onnxruntime==1.32.0
+opencv-python-headless==5.0.0.93
 opentelemetry-api==1.45.2
 packaging==26.4
 pillow==13.0.0
@@ -34,6 +35,7 @@ Pygments==2.21.0
 pypdf==7.2.0
 pytest==9.2.0
 python-multipart==0.0.34
+pyttsx3==2.99
 PyYAML==6.0.4
 reportlab==5.1.2
 starlette==1.10.0

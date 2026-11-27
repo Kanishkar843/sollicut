@@ -30,7 +30,7 @@ NUMBERS = {
 
 MUSIC = r"music|bgm|மியூசிக்|இசை"
 REDUCE = r"kammi|reduce|lower|softer|decrease|கம்மி|குறை"
-OFFER = r"offer|discount|sale|ஆஃபர்|தள்ளுபடி"
+OFFER = r"offer|discount|\bsale\b(?!\s*(?:sticker|badge))|ஆஃபர்|தள்ளுபடி"
 TEXT = r"text|title|caption|எழுத்து|வாசகம்|உரை"
 TRIM = r"\b(?:trim|cut)\b|கட்"
 SPLIT = r"\bsplit\b|பிரி"
@@ -216,7 +216,10 @@ def parse(raw: str, media_count: int, has_reel: bool = False, context: dict | No
         elif re.search(r"louder|increase|அதிக|kootu", text):
             add("set_music_volume", direction="increase")
         else:
-            add("set_music", enabled=not bool(re.search(r"\b(?:remove|off|without)\b|வேண்டாம்|நிறுத்து", text)))
+            disable_music = bool(
+                re.search(r"(?:remove|off|without|no)\s+(?:background\s+)?(?:music|bgm)|(?:music|bgm)\s+(?:off|remove|வேண்டாம்|நிறுத்து)", text)
+            )
+            add("set_music", enabled=not disable_music)
     if re.search(r"bright|dark|பிரைட்|வெளிச்ச", text):
         base_b = float(ctx.get("brightness", 0.0))
         delta = -0.1 if re.search(REDUCE + r"|dark", text) else 0.1
@@ -225,7 +228,7 @@ def parse(raw: str, media_count: int, has_reel: bool = False, context: dict | No
 
     # Transitions
     if re.search(r"\btransition\b|மாற்றம்", text):
-        if re.search(r"\b(?:remove|no|off|none)\b|வேண்டாம்", text):
+        if re.search(r"(?:remove|no|off|none|clear)\s+(?:the\s+)?transition|transition\s+(?:off|none|remove|வேண்டாம்)", text):
             add("set_transition", style="none")
         elif re.search(r"dissolve", text):
             add("set_transition", style="dissolve")
@@ -242,7 +245,7 @@ def parse(raw: str, media_count: int, has_reel: bool = False, context: dict | No
 
     # Color grading filters
     if re.search(r"\bfilter\b|black and white|\bb\s*&\s*w\b|cinematic|vintage|ஃபில்டர்", text):
-        if re.search(r"\b(?:remove|no|off|none|clear)\b|வேண்டாம்", text):
+        if re.search(r"(?:remove|no|off|none|clear)\s+(?:the\s+)?filter|filter\s+(?:off|none|remove|clear|வேண்டாம்)", text):
             add("set_filter", preset="none")
         elif re.search(r"cinematic", text):
             add("set_filter", preset="cinematic")
@@ -277,43 +280,42 @@ def parse(raw: str, media_count: int, has_reel: bool = False, context: dict | No
             params["clip_index"] = int(clip_speed_target[1])
         add("set_clip_speed", **params)
 
-    # Audio post-processing
+    # Audio post-processing (combined into a single operation)
+    audio_fx: dict = {}
     if re.search(r"denoise|noise\s*reduction|reduce\s*noise|remove\s*noise", text):
-        add("set_audio_processing", audio_denoise=True)
+        audio_fx["audio_denoise"] = True
     if re.search(r"normalize\s*audio|loudness\s*normalize|auto\s*gain", text):
-        add("set_audio_processing", audio_normalize=True)
+        audio_fx["audio_normalize"] = True
     if re.search(r"enhance\s*voice|voice\s*enhance|clear\s*voice", text):
-        add("set_audio_processing", voice_enhance=True)
+        audio_fx["voice_enhance"] = True
     if re.search(r"isolate\s*vocals|vocals\s*only", text):
-        add("set_audio_processing", vocal_isolation="vocals_only")
+        audio_fx["vocal_isolation"] = "vocals_only"
     elif re.search(r"remove\s*vocals|instrumental\s*only|music\s*only", text):
-        add("set_audio_processing", vocal_isolation="music_only")
+        audio_fx["vocal_isolation"] = "music_only"
+    if audio_fx:
+        add("set_audio_processing", **audio_fx)
 
-    # Visual effects
+    # Visual effects (combined into a single operation)
+    fx_params: dict = {}
     if re.search(r"stabiliz|deshake|steady", text):
-        params = {"stabilize": not bool(re.search(r"\boff\b|\bremove\b", text))}
-        if clip_speed_target:
-            params["clip_index"] = int(clip_speed_target[1])
-        add("set_visual_effect", **params)
+        disable_stab = bool(re.search(r"(?:remove|off|disable)\s+(?:video\s+)?stabiliz|stabiliz\w*\s+(?:off|remove)", text))
+        fx_params["stabilize"] = not disable_stab
     if re.search(r"remove\s*background|auto\s*cutout|cutout|பின்னணி\s*நீக்கு", text):
-        params = {"cutout_mode": "none" if re.search(r"\boff\b", text) else "auto_cutout"}
-        if clip_speed_target:
-            params["clip_index"] = int(clip_speed_target[1])
-        add("set_visual_effect", **params)
+        off_cut = bool(re.search(r"(?:cutout|background)\s+off|off\s+cutout", text))
+        fx_params["cutout_mode"] = "none" if off_cut else "auto_cutout"
     if re.search(r"green\s*screen|chroma\s*key", text):
-        params = {"cutout_mode": "none" if re.search(r"\boff\b", text) else "chroma_key"}
-        if clip_speed_target:
-            params["clip_index"] = int(clip_speed_target[1])
-        add("set_visual_effect", **params)
+        off_ck = bool(re.search(r"(?:chroma\s*key|green\s*screen)\s+off|off\s+(?:chroma|green)", text))
+        fx_params["cutout_mode"] = "none" if off_ck else "chroma_key"
     if re.search(r"relight", text):
-        params = {"relight": -0.2 if re.search(REDUCE, text) else 0.2}
+        fx_params["relight"] = -0.2 if re.search(REDUCE, text) else 0.2
+    if fx_params:
         if clip_speed_target:
-            params["clip_index"] = int(clip_speed_target[1])
-        add("set_visual_effect", **params)
+            fx_params["clip_index"] = int(clip_speed_target[1])
+        add("set_visual_effect", **fx_params)
 
     # Stickers
     if re.search(r"\bsticker\b|\bbadge\b", text):
-        if re.search(r"\b(?:remove|no|off|none)\b", text):
+        if re.search(r"(?:remove|no|off|none|clear)\s+(?:the\s+)?(?:sticker|badge)|(?:sticker|badge)\s+(?:off|none|remove)", text):
             add("set_sticker", sticker_badge="none")
         elif re.search(r"new", text):
             add("set_sticker", sticker_badge="new")

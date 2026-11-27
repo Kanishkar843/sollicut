@@ -8,3 +8,5 @@ httpx
 pytest
 reportlab
 pypdf
+opencv-python-headless
+pyttsx3

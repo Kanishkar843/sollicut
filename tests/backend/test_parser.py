@@ -111,3 +111,39 @@ def test_raw_preserved():
     result = parse(raw, 3)
     assert result.original_transcript == raw
     assert result.operations[0].parameters["text"] == "Diwali Special"
+
+
+def test_multiturn_context_followup_and_capcut_rules():
+    ctx = {"active_text_id": "layer-1", "active_text": "Sale 20%", "active_position": "bottom", "brightness": 0.1}
+    follow = parse("Change text to 25%", 2, True, context=ctx)
+    assert not follow.requires_clarification
+    op = follow.operations[0]
+    assert op.type == "set_text_overlay"
+    assert op.parameters["text"] == "Sale 25%"
+    assert op.parameters["target_id"] == "layer-1"
+    assert op.parameters["placement"] == "bottom"
+
+    from_to = parse("Change 20% to 35%", 2, True, context=ctx)
+    assert from_to.operations[0].parameters["text"] == "Sale 35%"
+
+    created = parse("Create text 'Sale 20%' on clip 1", 2, True)
+    assert created.operations[0].parameters == {"text": "Sale 20%", "placement": "bottom", "clip_index": 1}
+
+    bright2 = parse("brighter", 2, True, context=ctx)
+    assert bright2.operations[0].parameters["value"] == 0.2
+
+    fx = operations("cinematic filter podu. fade transition add pannu. clip 1 slow motion. denoise audio. stabilize video. remove background")
+    assert fx["set_filter"]["preset"] == "cinematic"
+    assert fx["set_transition"]["style"] == "fade"
+    assert fx["set_clip_speed"] == {"speed": 0.5, "clip_index": 1}
+    assert fx["set_audio_processing"]["audio_denoise"] is True
+    assert fx["set_visual_effect"]["stabilize"] is True
+    assert fx["set_visual_effect"]["cutout_mode"] == "auto_cutout"
+
+    split_cmd = operations("Split clip 1 at 2 seconds", count=2)
+    assert split_cmd["split_clip"] == {"clip_index": 1, "split_at_seconds": 2.0}
+    assert "set_duration" not in split_cmd
+
+    redo_cmd = operations("redo")
+    assert "redo" in redo_cmd
+

@@ -247,3 +247,101 @@ test('AI Ad reference picker caps Gemini duration at 10s when 2 photos selected'
   expect(slider.max).toBe('10')
   expect(slider.value).toBe('10')
 })
+
+test('manual typed follow-up command updates text overlay and enables redo', async () => {
+  let stateText: string | null = 'Sale 20%'
+  let redoLen = 0
+  const makeProject = () => ({
+    id: 'project',
+    assets: [{ id: 'p1', filename: 'one.png', media_type: 'image' }],
+    current_output: 'renders/revision-1.mp4',
+    current_render_revision: 1,
+    undo_stack: [{}],
+    redo_stack: redoLen ? [{}] : [],
+    settings: {
+      duration_seconds: 15,
+      zoom_style: 'smooth',
+      music_enabled: true,
+      music_volume: 0.2,
+      keep_clip_audio: false,
+      clip_audio_volume: 0.7,
+      fit_mode: 'contain',
+      overlay_text: stateText,
+      overlay_position: 'bottom',
+      overlay_color: 'lime',
+      brightness: 0,
+      text_layers: stateText
+        ? [{ id: 'txt-1', text: stateText, position: 'bottom', color: 'lime', animation: 'none', is_caption: false }]
+        : [],
+      active_text_id: stateText ? 'txt-1' : null,
+      transition_style: 'none',
+      filter_preset: 'none',
+    },
+  })
+
+  const fetchSpy = vi.fn(async (input: string) => {
+    const url = String(input)
+    if (url.includes('capabilities')) {
+      return {
+        ok: true,
+        json: async () => ({
+          generation: { configured: false, status: 'key_not_set', model: 'gemini-omni-1.2-flash' },
+          renderer: { available: true },
+          speech: { status: 'ready', error: null },
+          tts: { available: true, backend: 'pyttsx3', languages: ['en', 'ta'] },
+          cutout: { backend: 'opencv_grabcut', u2net_ready: false, chroma_key: true },
+        }),
+      }
+    }
+    if (url.includes('assets-catalog')) {
+      return { ok: true, json: async () => ({ templates: [], audio_packs: [], filters: [], transitions: [], stickers: [], stock_video: { status: 'deferred', note: 'Deferred', items: [] } }) }
+    }
+    if (url.endsWith('/apply')) {
+      stateText = 'Sale 25%'
+      return {
+        ok: true,
+        json: async () => ({
+          parsed_command: {
+            original_transcript: 'Change text to 25%',
+            operations: [{ id: 'op-1', type: 'set_text_overlay', parameters: { text: 'Sale 25%', placement: 'bottom' } }],
+            requires_clarification: false,
+            clarification_question: null,
+            warnings: [],
+          },
+          job_id: 'job-2',
+        }),
+      }
+    }
+    if (url.includes('/jobs/job-2')) {
+      return { ok: true, json: async () => ({ status: 'done', stage: 'Ready to preview' }) }
+    }
+    if (url.endsWith('/undo')) {
+      stateText = 'Sale 20%'
+      redoLen = 1
+      return { ok: true, json: async () => makeProject() }
+    }
+    if (url.endsWith('/redo')) {
+      stateText = 'Sale 25%'
+      redoLen = 0
+      return { ok: true, json: async () => makeProject() }
+    }
+    return { ok: true, json: async () => makeProject() }
+  })
+  vi.stubGlobal('fetch', fetchSpy)
+  render(<App />)
+
+  const cmdInput = await screen.findByLabelText('Manual command input')
+  fireEvent.change(cmdInput, { target: { value: 'Change text to 25%' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Run command' }))
+
+  await waitFor(() => expect(screen.getByText('Sale 25%')).toBeInTheDocument())
+  expect(screen.getByRole('tab', { name: 'FX' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Assets' })).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+  await waitFor(() => expect(screen.getByText('Sale 20%')).toBeInTheDocument())
+
+  fireEvent.click(screen.getByRole('button', { name: 'Redo' }))
+  await waitFor(() => expect(screen.getByText('Sale 25%')).toBeInTheDocument())
+})
+

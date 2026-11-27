@@ -209,8 +209,7 @@ def _process_video_auto_cutout(source_path: Path, out_path: Path, mask_path: Pat
             small_alpha = effects._grabcut_alpha(small)
             alpha = cv2.resize(small_alpha, (w, h), interpolation=cv2.INTER_LINEAR)
             if not saved_mask:
-                mask_path.parent.mkdir(parents=True, exist_ok=True)
-                cv2.imwrite(str(mask_path), alpha)
+                effects.write_image(mask_path, alpha)
                 saved_mask = True
             alpha_f = (alpha.astype(np.float32) / 255.0)[..., None]
             backdrop = np.full_like(frame, (15, 17, 14), dtype=np.uint8).astype(np.float32)
@@ -381,7 +380,7 @@ def render(project: ProjectState, revision: int, stage: Callable[[str], None] = 
             extras = _clip_vf_extras(asset, settings)
 
             if eff_keyframes:
-                base_bgr = cv2.resize(cv2.imread(str(normalized), cv2.IMREAD_COLOR), (720, 1280), interpolation=cv2.INTER_AREA)
+                base_bgr = cv2.resize(effects.read_bgr(normalized), (720, 1280), interpolation=cv2.INTER_AREA)
                 raw_buf = bytearray()
                 for f_idx in range(frames):
                     props = kf.interpolate_keyframes(eff_keyframes, f_idx / 30.0)

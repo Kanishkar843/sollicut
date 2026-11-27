@@ -91,20 +91,35 @@ def _grabcut_alpha(bgr: np.ndarray) -> np.ndarray:
     return fg
 
 
+def read_bgr(path: Path) -> np.ndarray:
+    """Unicode-safe image loader (handles non-ASCII Windows temp/project paths)."""
+    data = np.frombuffer(path.read_bytes(), dtype=np.uint8)
+    img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError(f"Could not decode image: {path}")
+    return img
+
+
+def write_image(path: Path, img: np.ndarray) -> None:
+    """Unicode-safe image writer (handles non-ASCII Windows temp/project paths)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    ext = path.suffix or ".png"
+    ok, buf = cv2.imencode(ext, img)
+    if not ok:
+        raise ValueError(f"Could not encode image: {path}")
+    path.write_bytes(buf.tobytes())
+
+
 def auto_cutout_image(input_path: Path, output_path: Path, mask_path: Path | None = None) -> Path:
-    bgr = cv2.imread(str(input_path), cv2.IMREAD_COLOR)
-    if bgr is None:
-        raise ValueError(f"Could not read image for cutout: {input_path}")
+    bgr = read_bgr(input_path)
     u2net = _find_u2net_model()
     alpha = _u2net_alpha(bgr, u2net) if u2net else _grabcut_alpha(bgr)
     if mask_path is not None:
-        mask_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(mask_path), alpha)
+        write_image(mask_path, alpha)
     alpha_f = (alpha.astype(np.float32) / 255.0)[..., None]
     backdrop = np.full_like(bgr, (15, 17, 14), dtype=np.uint8).astype(np.float32)
     comp = (bgr.astype(np.float32) * alpha_f + backdrop * (1.0 - alpha_f)).astype(np.uint8)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(output_path), comp)
+    write_image(output_path, comp)
     return output_path
 
 
@@ -115,22 +130,18 @@ def chroma_key_image(
     hex_color: str = "0x00ff00",
     similarity: float = 0.25,
 ) -> Path:
-    bgr = cv2.imread(str(input_path), cv2.IMREAD_COLOR)
-    if bgr is None:
-        raise ValueError(f"Could not read image for chroma key: {input_path}")
+    bgr = read_bgr(input_path)
     key_bgr = np.array(_parse_hex_bgr(hex_color), dtype=np.float32)
     dist = np.linalg.norm(bgr.astype(np.float32) - key_bgr, axis=2) / 441.67
     thresh = max(0.01, min(0.6, float(similarity)))
     alpha = np.clip((dist - thresh) / 0.12, 0.0, 1.0)
     alpha_u8 = (alpha * 255.0).astype(np.uint8)
     if mask_path is not None:
-        mask_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(mask_path), alpha_u8)
+        write_image(mask_path, alpha_u8)
     alpha_f = alpha[..., None].astype(np.float32)
     backdrop = np.full_like(bgr, (15, 17, 14), dtype=np.uint8).astype(np.float32)
     comp = (bgr.astype(np.float32) * alpha_f + backdrop * (1.0 - alpha_f)).astype(np.uint8)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(output_path), comp)
+    write_image(output_path, comp)
     return output_path
 
 
