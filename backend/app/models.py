@@ -140,3 +140,12 @@ class TranscriptResult(StrictModel):
     text: str
     language: str
     elapsed_seconds: float
+
+
+class DualTranscriptResult(StrictModel):
+    primary_text: str
+    tamil_transcript: str | None = None
+    english_transcript: str | None = None
+    mode: Literal["tanglish", "ta", "en"] = "tanglish"
+    engines_used: list[str] = Field(default_factory=list)
+    elapsed_seconds: float

@@ -13,11 +13,11 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from . import media, storage
 from .models import ApplyRequest, Asset, EditOperation, GenerateRequest, Job, ProjectState, ReelSettings, Snapshot, VisualEditRequest
 from .parser import parse
-from .speech import FasterWhisperSpeechEngine
+from .speech import DualSpeechRouter
 from . import generation
 
 Image.MAX_IMAGE_PIXELS = 50_000_000
-speech = FasterWhisperSpeechEngine()
+speech = DualSpeechRouter()
 jobs: dict[str, Job] = {}
 busy: set[str] = set()
 tasks: set[asyncio.Task] = set()
@@ -104,10 +104,18 @@ def health():
 
 @app.get("/api/capabilities")
 def capabilities():
+    speech_caps = speech.capabilities()
     return {
         "generation": generation.status(),
         "renderer": media_status,
-        "speech": {"engine": "faster-whisper", "status": speech.status, "error": speech.error},
+        "speech": {
+            "engine": speech_caps["engine"],
+            "status": speech_caps["status"],
+            "error": speech_caps["error"],
+        },
+        "asr_engines": speech_caps["asr_engines"],
+        "supported_modes": speech_caps["supported_modes"],
+        "streaming_ws": speech_caps["streaming_ws"],
         "limits": {
             "images": 5,
             "media_items": 5,
