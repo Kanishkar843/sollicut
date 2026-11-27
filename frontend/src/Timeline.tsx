@@ -1,7 +1,7 @@
-import { ChevronLeft, ChevronRight, Film, Image as ImageIcon, Music2, Type } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Film, Music2, Plus, Type, Volume2, VolumeX } from 'lucide-react'
 import type { Asset, Project } from './api'
 
-type Tab = 'voice' | 'text' | 'audio' | 'look' | 'trim' | 'ai'
+type Tab = 'voice' | 'media' | 'text' | 'audio' | 'look' | 'trim' | 'ai'
 
 type Props = {
   project: Project
@@ -11,6 +11,8 @@ type Props = {
   busy: boolean
   onSelectClip: (id: string) => void
   onMoveClip: (index: number, delta: -1 | 1) => void
+  onAddMedia: () => void
+  onToggleMusicMute: () => void
   onJumpTab: (tab: Tab) => void
   onSeek: (seconds: number) => void
 }
@@ -22,7 +24,7 @@ function fmt(sec: number): string {
   return `${String(mins).padStart(2, '0')}:${rem}`
 }
 
-const WAVE = [28, 52, 74, 44, 86, 62, 35, 92, 58, 70, 40, 82, 65, 30, 78, 54, 88, 46, 66, 38, 75, 50, 84, 42, 68, 34, 72, 58]
+const WAVE = [28, 52, 74, 44, 86, 62, 35, 92, 58, 70, 40, 82, 65, 30, 78, 54, 88, 46, 66, 38, 75, 50, 84, 42, 68, 34, 72, 58, 48, 76, 39, 64]
 
 export default function Timeline({
   project,
@@ -32,6 +34,8 @@ export default function Timeline({
   busy,
   onSelectClip,
   onMoveClip,
+  onAddMedia,
+  onToggleMusicMute,
   onJumpTab,
   onSeek,
 }: Props) {
@@ -68,15 +72,51 @@ export default function Timeline({
           <span>{mediaAssets.length} clip{mediaAssets.length === 1 ? '' : 's'}</span>
           <span>{zoomStyle === 'smooth' ? 'Smooth zoom' : 'Static'}</span>
           <span>{musicEnabled ? `Music ${Math.round(musicVolume * 100)}%` : 'Music muted'}</span>
+          {keepClipAudio && <span>Clip audio on</span>}
         </div>
       </div>
 
       <div className="timeline-body">
-        <div className="track-labels" aria-hidden="true">
+        <div className="track-labels">
           <div className="ruler-spacer" />
-          <div className="track-label"><Film size={13} />Media</div>
-          <div className="track-label"><Type size={13} />Text</div>
-          <div className="track-label"><Music2 size={13} />Audio</div>
+          <div className="track-label">
+            <span className="track-name"><Film size={13} />Media</span>
+            <button
+              type="button"
+              className="track-ctrl"
+              disabled={busy || mediaAssets.length >= 5}
+              onClick={onAddMedia}
+              title="Add photo or video clip"
+              aria-label="Add media to timeline"
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+          <div className="track-label">
+            <span className="track-name"><Type size={13} />Text</span>
+            <button
+              type="button"
+              className="track-ctrl"
+              onClick={() => onJumpTab('text')}
+              title="Edit overlay text"
+              aria-label="Edit text track"
+            >
+              <Type size={11} />
+            </button>
+          </div>
+          <div className="track-label">
+            <span className="track-name"><Music2 size={13} />Audio</span>
+            <button
+              type="button"
+              className={`track-ctrl ${!musicEnabled ? 'muted' : ''}`}
+              disabled={busy}
+              onClick={onToggleMusicMute}
+              title={musicEnabled ? 'Mute background music' : 'Unmute background music'}
+              aria-label={musicEnabled ? 'Mute background music' : 'Unmute background music'}
+            >
+              {musicEnabled ? <Volume2 size={12} /> : <VolumeX size={12} />}
+            </button>
+          </div>
         </div>
 
         <div className="tracks-canvas">
@@ -98,11 +138,12 @@ export default function Timeline({
 
           <div className="track-row media-track">
             {mediaAssets.length === 0 ? (
-              <div className="track-empty">Upload photos or video clips above to build your reel timeline</div>
+              <div className="track-empty">Upload photos or video clips in Your media to populate the timeline</div>
             ) : (
               mediaAssets.map((asset, index) => {
                 const selected = asset.id === selectedClipId
                 const trimmed = asset.media_type === 'video' && ((asset.trim_start ?? 0) > 0 || asset.trim_end != null)
+                const assetUrl = `/api/projects/${project.id}/assets/${asset.id}`
                 return (
                   <div
                     key={asset.id}
@@ -110,13 +151,17 @@ export default function Timeline({
                     style={{ flex: 1 }}
                     onClick={() => onSelectClip(asset.id)}
                   >
-                    <div className="tl-clip-thumb">
-                      {asset.media_type === 'video' ? <Film size={12} /> : <ImageIcon size={12} />}
+                    <div className="tl-clip-thumb" aria-hidden="true">
+                      {asset.media_type === 'video' ? (
+                        <video muted preload="metadata" src={assetUrl} />
+                      ) : (
+                        <img src={assetUrl} alt="" />
+                      )}
                     </div>
                     <div className="tl-clip-info">
                       <strong>#{index + 1} {asset.filename}</strong>
                       <span>
-                        {slotSec.toFixed(1)}s{trimmed ? ` · trim ${(asset.trim_start ?? 0).toFixed(1)}–${(asset.trim_end ?? asset.duration_seconds ?? slotSec).toFixed(1)}s` : ''}
+                        {slotSec.toFixed(1)}s{trimmed ? ` · ${(asset.trim_start ?? 0).toFixed(1)}–${(asset.trim_end ?? asset.duration_seconds ?? slotSec).toFixed(1)}s` : ''}
                       </span>
                     </div>
                     {mediaAssets.length > 1 && (
@@ -164,7 +209,7 @@ export default function Timeline({
           </div>
 
           <div className="track-row audio-track">
-            <button type="button" className="tl-audio-bar" onClick={() => onJumpTab('audio')}>
+            <button type="button" className={`tl-audio-bar ${!musicEnabled ? 'muted' : ''}`} onClick={() => onJumpTab('audio')}>
               <div className="tl-audio-meta">
                 <span>
                   {musicEnabled

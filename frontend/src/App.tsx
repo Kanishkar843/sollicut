@@ -7,8 +7,10 @@ import {
   ChevronRight,
   Download,
   Film,
+  FolderOpen,
   ImagePlus,
   LoaderCircle,
+  Maximize2,
   Mic,
   Music2,
   Pause,
@@ -93,6 +95,7 @@ export default function App() {
   const music = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const voicePanelRef = useRef<HTMLDivElement>(null)
+  const mediaPanelRef = useRef<HTMLElement>(null)
 
   const mediaAssets = project?.assets.filter((a) => a.media_type !== 'audio') ?? []
   const selectedClip = mediaAssets.find((a) => a.id === selectedClipId) ?? mediaAssets[0] ?? null
@@ -358,12 +361,22 @@ export default function App() {
     if (el) el.muted = next
   }
 
-  function jumpTab(tab: 'voice' | InspectorTab) {
+  function jumpTab(tab: 'voice' | 'media' | InspectorTab) {
     if (tab === 'voice') {
       voicePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       return
     }
+    if (tab === 'media') {
+      mediaPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      return
+    }
     setActiveTab(tab)
+  }
+
+  function requestPreviewFullscreen() {
+    const el = videoRef.current
+    if (!el || typeof el.requestFullscreen !== 'function') return
+    void el.requestFullscreen()
   }
 
   const totalDur = project?.settings?.duration_seconds ?? 15
@@ -419,12 +432,22 @@ export default function App() {
           <button
             type="button"
             className="rail-btn voice-rail"
-            onClick={() => voicePanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
+            onClick={() => jumpTab('voice')}
             title="Voice Director"
             aria-label="Focus Voice Director"
           >
             <Mic size={18} />
             <span>Voice</span>
+          </button>
+          <button
+            type="button"
+            className="rail-btn"
+            onClick={() => jumpTab('media')}
+            title="Your media"
+            aria-label="Focus media library"
+          >
+            <FolderOpen size={18} />
+            <span>Media</span>
           </button>
           <button
             type="button"
@@ -484,48 +507,171 @@ export default function App() {
 
         <main className="studio-main">
           <div className="studio-workspace">
-            <section className="stage-column" aria-label="Video preview and media">
+            <section ref={mediaPanelRef} className="media-library media-column" aria-label="Your media">
+              <div className="section-heading">
+                <div>
+                  <h2>Your media</h2>
+                  <p>1–5 photos or video clips</p>
+                </div>
+                <span className="count">{mediaAssets.length}/5 clips</span>
+              </div>
+              <input
+                ref={upload}
+                className="sr-only"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+                multiple
+                aria-label="Upload photos or videos"
+                onChange={(e) => {
+                  void filesSelected(Array.from(e.target.files ?? []))
+                  e.target.value = ''
+                }}
+              />
+              <div
+                className={`photo-area ${mediaAssets.length ? 'filled' : ''}`}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  void filesSelected(Array.from(e.dataTransfer.files))
+                }}
+              >
+                {mediaAssets.length ? (
+                  <div className="photo-grid">
+                    {mediaAssets.map((asset, i) => (
+                      <div
+                        className={`photo ${selectedClip?.id === asset.id ? 'selected' : ''}`}
+                        key={asset.id}
+                        onClick={() => {
+                          setSelectedClipId(asset.id)
+                          if (asset.media_type === 'video') setActiveTab('trim')
+                        }}
+                      >
+                        {asset.media_type === 'video' ? (
+                          <video muted preload="metadata" src={`/api/projects/${project!.id}/assets/${asset.id}`} />
+                        ) : (
+                          <img src={`/api/projects/${project!.id}/assets/${asset.id}`} alt={asset.filename} />
+                        )}
+                        <span className="clip-badge">
+                          #{i + 1} · {asset.media_type === 'video' ? `${(asset.duration_seconds ?? 0).toFixed(1)}s` : 'PHOTO'}
+                        </span>
+                        <div className="clip-actions" onClick={(e) => e.stopPropagation()}>
+                          {mediaAssets.length > 1 && (
+                            <>
+                              <button
+                                type="button"
+                                aria-label={`Move ${asset.filename} left`}
+                                disabled={busy || i === 0}
+                                onClick={() => void moveClip(i, -1)}
+                              >
+                                <ChevronLeft size={12} />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label={`Move ${asset.filename} right`}
+                                disabled={busy || i === mediaAssets.length - 1}
+                                onClick={() => void moveClip(i, 1)}
+                              >
+                                <ChevronRight size={12} />
+                              </button>
+                            </>
+                          )}
+                          <button
+                            type="button"
+                            aria-label={`Remove ${asset.filename}`}
+                            disabled={busy}
+                            onClick={() => void remove(asset.id)}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {mediaAssets.length < 5 && (
+                      <button
+                        type="button"
+                        className="add-photo"
+                        disabled={busy}
+                        onClick={() => upload.current?.click()}
+                        aria-label="Add more photos or videos"
+                      >
+                        <ImagePlus size={20} />
+                        <span>Add media</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="dropzone"
+                    disabled={busy || !project}
+                    onClick={() => upload.current?.click()}
+                  >
+                    <div className="upload-symbol">
+                      <ImagePlus size={24} />
+                    </div>
+                    <strong>Drop photos or video clips here</strong>
+                    <span>or click to choose from your device</span>
+                    <small>Photos: JPG, PNG, WebP (up to 15 MB) · Videos: MP4, MOV, WebM (up to 100 MB)</small>
+                  </button>
+                )}
+              </div>
+              <div className="media-bin-footer">
+                <div className="bin-audio-pill">
+                  <Music2 size={14} />
+                  <span>{audioAsset?.filename ?? 'Original demo music'}</span>
+                  <button type="button" className="text-button" onClick={() => setActiveTab('audio')}>
+                    Mix
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="stage-column" aria-label="Video preview">
               <div className="preview-stage">
                 <div className="stage-header">
                   <span className="eyebrow">REEL PREVIEW</span>
-                  <span className="preview-label">{project?.current_output ? 'READY TO PLAY' : 'NO RENDER YET'}</span>
+                  <span className="preview-label">
+                    {project?.current_output ? `READY · REV ${project.current_render_revision}` : 'NO RENDER YET'}
+                  </span>
                 </div>
 
-                <div className="video-frame">
-                  {project?.current_output ? (
-                    <video
-                      ref={videoRef}
-                      key={project.current_render_revision}
-                      controls
-                      playsInline
-                      src={`/api/projects/${project.id}/video?revision=${project.current_render_revision}`}
-                      aria-label="Rendered reel preview"
-                      onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
-                      onPlay={() => setPlaying(true)}
-                      onPause={() => setPlaying(false)}
-                      onEnded={() => setPlaying(false)}
-                    />
-                  ) : (
-                    <div className="empty-preview">
-                      <div className="preview-art">
-                        <div />
-                        <div />
-                        <div>
-                          <Sparkles size={28} />
+                <div className="preview-canvas">
+                  <div className="video-frame">
+                    {project?.current_output ? (
+                      <video
+                        ref={videoRef}
+                        key={project.current_render_revision}
+                        controls
+                        playsInline
+                        src={`/api/projects/${project.id}/video?revision=${project.current_render_revision}`}
+                        aria-label="Rendered reel preview"
+                        onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                        onPlay={() => setPlaying(true)}
+                        onPause={() => setPlaying(false)}
+                        onEnded={() => setPlaying(false)}
+                      />
+                    ) : (
+                      <div className="empty-preview">
+                        <div className="preview-art">
+                          <div />
+                          <div />
+                          <div>
+                            <Sparkles size={28} />
+                          </div>
                         </div>
+                        <h3>Speak it. Cut it. Sell it.</h3>
+                        <p>Upload photos or video clips on the left, then tap the microphone to direct your reel.</p>
+                        <span>720 × 1280 · 9:16 VERTICAL MP4</span>
                       </div>
-                      <h3>Speak it. Cut it. Sell it.</h3>
-                      <p>Upload photos or video clips below, then tap the microphone to direct your reel.</p>
-                      <span>720 × 1280 · 9:16 VERTICAL MP4</span>
-                    </div>
-                  )}
-                  {busy && jobId && (
-                    <div className="render-cover">
-                      <LoaderCircle className="spin" size={32} />
-                      <strong>{stage}</strong>
-                      <span>Building your vertical reel on the server.</span>
-                    </div>
-                  )}
+                    )}
+                    {busy && jobId && (
+                      <div className="render-cover">
+                        <LoaderCircle className="spin" size={32} />
+                        <strong>{stage}</strong>
+                        <span>Building your vertical reel on the server.</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="transport-bar" aria-label="Preview playback controls">
@@ -533,10 +679,19 @@ export default function App() {
                     type="button"
                     className="transport-btn"
                     disabled={!project?.current_output}
+                    onClick={toggleMutePreview}
+                    aria-label={mutedPreview ? 'Unmute preview' : 'Mute preview'}
+                  >
+                    {mutedPreview ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                  </button>
+                  <button
+                    type="button"
+                    className="transport-btn"
+                    disabled={!project?.current_output}
                     onClick={() => seekTo(0)}
                     aria-label="Jump to start"
                   >
-                    <SkipBack size={15} />
+                    <SkipBack size={14} />
                   </button>
                   <button
                     type="button"
@@ -554,8 +709,19 @@ export default function App() {
                     onClick={() => seekTo(Math.max(0, totalDur - 4))}
                     aria-label="Jump to offer end card"
                   >
-                    <SkipForward size={15} />
+                    <SkipForward size={14} />
                   </button>
+                  <input
+                    type="range"
+                    className="transport-scrub"
+                    aria-label="Seek reel time"
+                    min={0}
+                    max={totalDur}
+                    step={0.1}
+                    value={Math.min(currentTime, totalDur)}
+                    disabled={!project?.current_output}
+                    onChange={(e) => seekTo(Number(e.target.value))}
+                  />
                   <span className="timecode">
                     {formatTime(currentTime)} / {formatTime(totalDur)}
                   </span>
@@ -563,123 +729,13 @@ export default function App() {
                     type="button"
                     className="transport-btn"
                     disabled={!project?.current_output}
-                    onClick={toggleMutePreview}
-                    aria-label={mutedPreview ? 'Unmute preview' : 'Mute preview'}
+                    onClick={requestPreviewFullscreen}
+                    aria-label="Fullscreen preview"
                   >
-                    {mutedPreview ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                    <Maximize2 size={14} />
                   </button>
                 </div>
               </div>
-
-              <section className="media-library" aria-label="Your media">
-                <div className="section-heading">
-                  <div>
-                    <h2>Your media</h2>
-                    <p>Upload 1–5 photos or video clips for your reel.</p>
-                  </div>
-                  <span className="count">{mediaAssets.length}/5 clips</span>
-                </div>
-                <input
-                  ref={upload}
-                  className="sr-only"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
-                  multiple
-                  aria-label="Upload photos or videos"
-                  onChange={(e) => {
-                    void filesSelected(Array.from(e.target.files ?? []))
-                    e.target.value = ''
-                  }}
-                />
-                <div
-                  className={`photo-area ${mediaAssets.length ? 'filled' : ''}`}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault()
-                    void filesSelected(Array.from(e.dataTransfer.files))
-                  }}
-                >
-                  {mediaAssets.length ? (
-                    <div className="photo-grid">
-                      {mediaAssets.map((asset, i) => (
-                        <div
-                          className={`photo ${selectedClip?.id === asset.id ? 'selected' : ''}`}
-                          key={asset.id}
-                          onClick={() => {
-                            setSelectedClipId(asset.id)
-                            if (asset.media_type === 'video') setActiveTab('trim')
-                          }}
-                        >
-                          {asset.media_type === 'video' ? (
-                            <video muted preload="metadata" src={`/api/projects/${project!.id}/assets/${asset.id}`} />
-                          ) : (
-                            <img src={`/api/projects/${project!.id}/assets/${asset.id}`} alt={asset.filename} />
-                          )}
-                          <span className="clip-badge">
-                            #{i + 1} · {asset.media_type === 'video' ? `${(asset.duration_seconds ?? 0).toFixed(1)}s` : 'PHOTO'}
-                          </span>
-                          <div className="clip-actions" onClick={(e) => e.stopPropagation()}>
-                            {mediaAssets.length > 1 && (
-                              <>
-                                <button
-                                  type="button"
-                                  aria-label={`Move ${asset.filename} left`}
-                                  disabled={busy || i === 0}
-                                  onClick={() => void moveClip(i, -1)}
-                                >
-                                  <ChevronLeft size={12} />
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label={`Move ${asset.filename} right`}
-                                  disabled={busy || i === mediaAssets.length - 1}
-                                  onClick={() => void moveClip(i, 1)}
-                                >
-                                  <ChevronRight size={12} />
-                                </button>
-                              </>
-                            )}
-                            <button
-                              type="button"
-                              aria-label={`Remove ${asset.filename}`}
-                              disabled={busy}
-                              onClick={() => void remove(asset.id)}
-                            >
-                              <X size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                      {mediaAssets.length < 5 && (
-                        <button
-                          type="button"
-                          className="add-photo"
-                          disabled={busy}
-                          onClick={() => upload.current?.click()}
-                          aria-label="Add more photos or videos"
-                        >
-                          <ImagePlus size={22} />
-                          <span>Add media</span>
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="dropzone"
-                      disabled={busy || !project}
-                      onClick={() => upload.current?.click()}
-                    >
-                      <div className="upload-symbol">
-                        <ImagePlus size={26} />
-                      </div>
-                      <strong>Drop photos or video clips here</strong>
-                      <span>or click to choose from your device</span>
-                      <small>Photos: JPG, PNG, WebP (up to 15 MB) · Videos: MP4, MOV, WebM (up to 100 MB)</small>
-                    </button>
-                  )}
-                </div>
-              </section>
             </section>
 
             <aside className="inspector-column" aria-label="Voice director and editing inspector">
@@ -1171,6 +1227,7 @@ export default function App() {
                       project={project}
                       caps={caps}
                       busy={busy}
+                      languageHint={language}
                       onJobStarted={(id, st) => {
                         setBusy(true)
                         setStage(st)
@@ -1196,6 +1253,13 @@ export default function App() {
                 if (item?.media_type === 'video') setActiveTab('trim')
               }}
               onMoveClip={(i, delta) => void moveClip(i, delta)}
+              onAddMedia={() => upload.current?.click()}
+              onToggleMusicMute={() =>
+                void applyVisualEdit(
+                  { music_enabled: !project.settings.music_enabled, render: Boolean(project.current_output) },
+                  project.settings.music_enabled ? 'Muting background music' : 'Enabling background music',
+                )
+              }
               onJumpTab={jumpTab}
               onSeek={seekTo}
             />

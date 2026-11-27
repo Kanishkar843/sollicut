@@ -1,6 +1,6 @@
 # Architecture
 
-React/TypeScript/Vite/Tailwind provides the dark Frosted Folder Lookbook landing experience (`/`), studio preview transport, `Your media` photo/video uploader, MediaRecorder capture, 3-track interactive timeline, inspector controls (`Text`, `Audio`, `Look`, `Trim`, `AI Ad`), and HTML5 `<video>` playback. FastAPI serves the compiled UI and `/api` from a single container.
+React/TypeScript/Vite/Tailwind provides the dark Frosted Folder Lookbook landing experience (`/`), 3-column studio workstation (`Your media` bin, prominent 9:16 preview stage with scrubber/fullscreen transport, `Voice Director` + `Text`/`Audio`/`Look`/`Trim`/`AI Ad` inspector), MediaRecorder capture, 3-track interactive timeline with clip thumbnails and quick track actions, and HTML5 `<video>` playback. FastAPI serves the compiled UI and `/api` from a single container.
 
 JSON project files are atomically replaced under UUID directories (`/data/projects/<uuid>`). Photos are decoded, EXIF-normalized, and fitted without stretching (`contain` or `cover`). Uploaded videos (MP4/MOV/WebM) are probed with `ffprobe`, optionally trimmed (`trim_start`/`trim_end`), fitted to 720×1280, and optionally mixed with background music via `amix` + `anullsrc` when `keep_clip_audio` is enabled.
 

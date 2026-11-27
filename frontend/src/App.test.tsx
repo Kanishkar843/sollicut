@@ -129,3 +129,121 @@ test('landing page lookbook supports keyboard toggle and shows local campaign ca
   expect(screen.getAllByRole('button', { name: 'Close collection' })[0]).toHaveAttribute('aria-expanded', 'true')
   expect(screen.getByAltText('Boutique apparel and woven silk showcase card')).toHaveAttribute('src', '/lookbook/retail.png')
 })
+
+test('timeline quick audio mute button sends real edit request', async () => {
+  const fetchSpy = vi.fn(async (input: string) => ({
+    ok: true,
+    json: async () =>
+      String(input).includes('capabilities')
+        ? {
+            generation: { configured: false, status: 'key_not_set', model: 'gemini-omni-1.2-flash' },
+            renderer: { available: true },
+            speech: { status: 'ready', error: null },
+          }
+        : String(input).endsWith('/edit')
+          ? {
+              project: {
+                id: 'project',
+                assets: [{ id: 'a1', filename: 'photo.png', media_type: 'image' }],
+                current_output: null,
+                current_render_revision: 1,
+                undo_stack: [{}],
+                settings: {
+                  duration_seconds: 15,
+                  zoom_style: 'smooth',
+                  music_enabled: false,
+                  music_volume: 0.2,
+                  keep_clip_audio: false,
+                  clip_audio_volume: 0.7,
+                  fit_mode: 'contain',
+                  overlay_text: null,
+                  overlay_position: 'end_card',
+                  overlay_color: 'lime',
+                  brightness: 0,
+                },
+              },
+            }
+          : {
+              id: 'project',
+              assets: [{ id: 'a1', filename: 'photo.png', media_type: 'image' }],
+              current_output: null,
+              current_render_revision: 1,
+              undo_stack: [],
+              settings: {
+                duration_seconds: 15,
+                zoom_style: 'smooth',
+                music_enabled: true,
+                music_volume: 0.2,
+                keep_clip_audio: false,
+                clip_audio_volume: 0.7,
+                fit_mode: 'contain',
+                overlay_text: null,
+                overlay_position: 'end_card',
+                overlay_color: 'lime',
+                brightness: 0,
+              },
+            },
+  }))
+  vi.stubGlobal('fetch', fetchSpy)
+  render(<App />)
+  const muteBtn = await screen.findByRole('button', { name: 'Mute background music' })
+  fireEvent.click(muteBtn)
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/projects/project/edit',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ music_enabled: false, render: false }),
+      }),
+    ),
+  )
+  await screen.findByRole('button', { name: 'Unmute background music' })
+})
+
+test('AI Ad reference picker caps Gemini duration at 10s when 2 photos selected', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => ({
+      ok: true,
+      json: async () =>
+        String(input).includes('capabilities')
+          ? {
+              generation: { configured: false, status: 'key_not_set', model: 'gemini-omni-1.2-flash' },
+              renderer: { available: true },
+              speech: { status: 'ready', error: null },
+            }
+          : {
+              id: 'project',
+              assets: [
+                { id: 'p1', filename: 'one.png', media_type: 'image' },
+                { id: 'p2', filename: 'two.png', media_type: 'image' },
+              ],
+              current_output: null,
+              current_render_revision: 1,
+              undo_stack: [],
+              settings: {
+                duration_seconds: 15,
+                zoom_style: 'smooth',
+                music_enabled: true,
+                music_volume: 0.2,
+                keep_clip_audio: false,
+                clip_audio_volume: 0.7,
+                fit_mode: 'contain',
+                overlay_text: null,
+                overlay_position: 'end_card',
+                overlay_color: 'lime',
+                brightness: 0,
+              },
+            },
+    })),
+  )
+  render(<App />)
+  fireEvent.click(await screen.findByRole('tab', { name: 'AI Ad' }))
+  const slider = screen.getByLabelText(/Duration:/) as HTMLInputElement
+  fireEvent.change(slider, { target: { value: '14' } })
+  expect(slider.value).toBe('14')
+  fireEvent.click(screen.getByRole('button', { name: /#1/ }))
+  fireEvent.click(screen.getByRole('button', { name: /#2/ }))
+  expect(slider.max).toBe('10')
+  expect(slider.value).toBe('10')
+})

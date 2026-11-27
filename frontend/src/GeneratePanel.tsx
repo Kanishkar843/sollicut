@@ -7,10 +7,11 @@ type Props = {
   project: Project
   caps: Capabilities | null
   busy: boolean
+  languageHint?: string
   onJobStarted: (jobId: string, stage: string) => void
 }
 
-export default function GeneratePanel({ project, caps, busy, onJobStarted }: Props) {
+export default function GeneratePanel({ project, caps, busy, languageHint = '', onJobStarted }: Props) {
   const [prompt, setPrompt] = useState('')
   const [duration, setDuration] = useState(10)
   const [refs, setRefs] = useState<string[]>([])
@@ -19,7 +20,10 @@ export default function GeneratePanel({ project, caps, busy, onJobStarted }: Pro
 
   const configured = Boolean(caps?.generation?.configured)
   const modelName = caps?.generation?.model ?? 'gemini-omni-1.2-flash'
+  const mediaCount = project.assets.filter((a) => a.media_type !== 'audio').length
   const photos = project.assets.filter((a) => a.media_type === 'image')
+  const maxDuration = refs.length >= 2 ? 10 : 15
+  const effectiveDuration = Math.min(duration, maxDuration)
   const disabled = busy || transcribing
 
   async function record(blob: Blob, ext: string) {
@@ -29,6 +33,7 @@ export default function GeneratePanel({ project, caps, busy, onJobStarted }: Pro
       const data = new FormData()
       data.append('file', blob, `idea.${ext}`)
       data.append('mode', 'generate')
+      if (languageHint) data.append('language_hint', languageHint)
       const result = await api<{ generation_prompt: string }>(`/projects/${project.id}/voice-command`, {
         method: 'POST',
         body: data,
@@ -42,7 +47,11 @@ export default function GeneratePanel({ project, caps, busy, onJobStarted }: Pro
   }
 
   function toggleRef(id: string) {
-    setRefs((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : prev.length < 2 ? [...prev, id] : prev))
+    setRefs((prev) => {
+      const next = prev.includes(id) ? prev.filter((item) => item !== id) : prev.length < 2 ? [...prev, id] : prev
+      if (next.length >= 2 && duration > 10) setDuration(10)
+      return next
+    })
   }
 
   async function generate() {
@@ -54,7 +63,7 @@ export default function GeneratePanel({ project, caps, busy, onJobStarted }: Pro
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           transcript: prompt.trim(),
-          duration_seconds: duration,
+          duration_seconds: effectiveDuration,
           aspect_ratio: '9:16',
           reference_asset_ids: refs,
         }),
@@ -98,16 +107,23 @@ export default function GeneratePanel({ project, caps, busy, onJobStarted }: Pro
         disabled={disabled}
         onChange={(e) => setPrompt(e.target.value)}
       />
+      {mediaCount >= 5 && (
+        <p className="muted">
+          All 5 media slots are used; remove 1 clip if you also want the generated ad added to your timeline.
+        </p>
+      )}
       <div className="gen-controls">
         <div className="control-group">
-          <label htmlFor="gen-duration">Duration: {duration}s (9:16)</label>
+          <label className="field-label" htmlFor="gen-duration">
+            Duration: {effectiveDuration}s (9:16 · max {maxDuration}s{refs.length >= 2 ? ' with 2 photos' : ''})
+          </label>
           <input
             id="gen-duration"
             type="range"
             min={3}
-            max={15}
+            max={maxDuration}
             step={1}
-            value={duration}
+            value={effectiveDuration}
             disabled={disabled}
             onChange={(e) => setDuration(Number(e.target.value))}
           />

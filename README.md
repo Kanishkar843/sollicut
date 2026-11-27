@@ -19,7 +19,7 @@ Then say: “Offer ah 25 percent nu maathu. Background music konjam kammi pannu.
 
 ## Implemented
 
-- **Landing & Dark Studio UX**: Frosted Folder Lookbook landing page (`/`), electric-lime dark studio (`#studio`) with live `<video>` transport controls, `Your media` library, 3-track interactive timeline, and inspector controls (`Text`, `Audio`, `Look`, `Trim`, `AI Ad`).
+- **Landing & Dark Studio UX**: Frosted Folder Lookbook landing page (`/`), electric-lime dark 3-column workstation (`#studio`: `Your media` bin, centered 9:16 cinema `<video>` stage with scrub/fullscreen transport, `Voice Director` + `Text`/`Audio`/`Look`/`Trim`/`AI Ad` inspector) and above-the-fold 3-track timeline with clip thumbnails and quick mute/add controls.
 - **Voice & Local ASR**: Real browser `MediaRecorder` capture, local `faster-whisper` (`base`, CPU `int8`), deterministic Tamil/Tanglish/English multi-operation parser (no `max(3, ...)` count workaround; supports 1–5 media items, clip trim, clip reorder, clip audio mixing, fit mode, zoom, brightness, music, and overlays).
 - **Rendering & Undo**: Validated photo (JPEG/PNG/WebP), video (MP4/MOV/WebM), and music (WAV/MP3/M4A/OGG) uploads; FFmpeg 720×1280 H.264/AAC rendering; Pillow + `libraqm` Tamil shaping (`Noto Sans Tamil`); non-destructive revision snapshots, undo (including clip order/trim), download, and project deletion.
 - **Optional Gemini Cloud Ad Panel**: Prepared against `gemini-omni-1.2-flash` (`POST /v1beta/interactions`) using bounded background jobs, `9:16` / `3–15s` schema, and prompt review before sending. Clearly displays **Key not set** without `GEMINI_API_KEY`; core editing remains keyless.
