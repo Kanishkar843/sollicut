@@ -66,6 +66,13 @@ export type Capabilities = {
   asr_engines?: { indicconformer_ta: boolean; faster_whisper_small: boolean }
   supported_modes?: AsrMode[]
   streaming_ws?: boolean
+  voice_profile?: {
+    profile: 'lightweight' | 'balanced' | 'accuracy'
+    asr_model: string
+    vad: 'silero' | 'rms'
+    resampler: 'linear' | 'fir_kaiser'
+    threads: number
+  }
   limits?: { media_items?: number; image_mb?: number; video_mb?: number; video_seconds?: number }
 }
 

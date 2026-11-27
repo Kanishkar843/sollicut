@@ -85,15 +85,18 @@ def download_silero_vad(model_root: Path) -> bool:
 
 
 if __name__ == "__main__":
-    model = os.getenv("SOLLICUT_ASR_MODEL", "small").strip() or "small"
+    profile = (os.getenv("SOLLICUT_PROFILE") or "balanced").strip().lower()
+    default_model = "large-v3-turbo" if profile == "accuracy" else "small"
+    model = os.getenv("SOLLICUT_ASR_MODEL", "").strip() or default_model
     model_root = Path(os.getenv("SOLLICUT_MODEL_DIR", "models"))
     indic_enabled = _env_bool("SOLLICUT_INDIC_ASR_ENABLED", True)
+    vad_enabled = _env_bool("SOLLICUT_VAD_ENABLED", profile != "lightweight")
     indic_dir = Path(os.getenv("SOLLICUT_INDIC_MODEL_DIR", "").strip() or (model_root / "indicconformer-ta"))
 
     ok_whisper = download_whisper(model, model_root)
     ok_indic = download_indicconformer(indic_dir) if indic_enabled else True
-    ok_vad = download_silero_vad(model_root)
+    ok_vad = download_silero_vad(model_root) if vad_enabled else True
     if not ok_whisper and not ok_indic:
         sys.exit(1)
-    if not ok_vad:
+    if vad_enabled and not ok_vad:
         print("Warning: Silero VAD unavailable — will fall back to RMS gate.", file=sys.stderr)

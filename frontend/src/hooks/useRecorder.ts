@@ -25,6 +25,7 @@ type StartOptions = {
   projectId?: string
   mode: AsrMode
   previewOnly?: boolean
+  resampler?: 'linear' | 'fir_kaiser'
   onStreamResult?: (command: Command) => void
   onProcessing?: () => void
   onAudio: (blob: Blob, extension: string) => void
@@ -156,7 +157,7 @@ export function useRecorder() {
   }
 
   async function start(opts: StartOptions) {
-    const { projectId, mode, previewOnly = false, onStreamResult, onProcessing, onAudio, onError } = opts
+    const { projectId, mode, previewOnly = false, resampler = 'fir_kaiser', onStreamResult, onProcessing, onAudio, onError } = opts
     stoppingRef.current = false
     setRecorderState('initializing')
     try {
@@ -190,6 +191,7 @@ export function useRecorder() {
           projectId,
           mode,
           previewOnly,
+          resampler,
           onStreamResult,
           onProcessing,
           onAudio,
@@ -211,6 +213,7 @@ export function useRecorder() {
     projectId: string,
     mode: AsrMode,
     previewOnly: boolean,
+    resampler: 'linear' | 'fir_kaiser',
     onStreamResult: (command: Command) => void,
     onProcessing: (() => void) | undefined,
     onAudio: (blob: Blob, extension: string) => void,
@@ -255,6 +258,9 @@ export function useRecorder() {
       wsRef.current = ws
       const source = audioCtx.createMediaStreamSource(stream)
       const node = new AudioWorkletNode(audioCtx, 'pcm-processor')
+      if (resampler === 'linear') {
+        node.port.postMessage({ type: 'config', resampler: 'linear' })
+      }
       workletRef.current = node
       source.connect(node)
 

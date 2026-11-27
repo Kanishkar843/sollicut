@@ -140,6 +140,7 @@ class IndicConformerTamilEngine:
 class FasterWhisperSpeechEngine:
     def __init__(self):
         self.model = None
+        self.loaded_model_name: str | None = None
         self.status = "loading"
         self.error: str | None = None
         self.lock = asyncio.Lock()
@@ -149,9 +150,16 @@ class FasterWhisperSpeechEngine:
             from faster_whisper import WhisperModel
 
             name = config.get_asr_model()
-            local = config.get_model_dir() / name
+            model_dir = config.get_model_dir()
+            local = model_dir / name
             if not (local / "model.bin").is_file():
-                raise FileNotFoundError(f"Missing Whisper model at {local}")
+                fallback = model_dir / "small"
+                if name != "small" and (fallback / "model.bin").is_file():
+                    logger.warning("Whisper '%s' not found at %s; falling back to 'small'.", name, local)
+                    name = "small"
+                    local = fallback
+                else:
+                    raise FileNotFoundError(f"Missing Whisper model at {local}")
             self.model = WhisperModel(
                 str(local),
                 device=config.get_asr_device(),
@@ -159,10 +167,12 @@ class FasterWhisperSpeechEngine:
                 cpu_threads=config.get_asr_threads(),
                 local_files_only=True,
             )
+            self.loaded_model_name = name
             self.status = "ready"
             self.error = None
         except Exception:
             self.model = None
+            self.loaded_model_name = None
             self.status = "unavailable"
             self.error = "Local speech model unavailable. Run the model setup or rebuild the image with network access."
 
@@ -239,6 +249,8 @@ class DualSpeechRouter:
         return self.whisper.error or self.indic.error or "Local speech models are unavailable."
 
     def capabilities(self) -> dict:
+        from .voice.vad import vad
+
         indic_ready = self.indic.status == "ready"
         whisper_ready = self.whisper.status == "ready"
         engine_label = (
@@ -246,6 +258,8 @@ class DualSpeechRouter:
             if (indic_ready and whisper_ready)
             else ("indicconformer-ta" if indic_ready else "faster-whisper")
         )
+        prof = config.get_profile_spec()
+        vad_active = config.is_silero_vad_enabled() and vad.status == "ready"
         return {
             "engine": engine_label,
             "status": self.status,
@@ -256,11 +270,32 @@ class DualSpeechRouter:
             },
             "supported_modes": ["tanglish", "ta", "en"],
             "streaming_ws": True,
+            "voice_profile": {
+                "profile": prof.name,
+                "asr_model": getattr(self.whisper, "loaded_model_name", None) or config.get_asr_model(),
+                "vad": "silero" if vad_active else "rms",
+                "resampler": config.get_resampler_mode(),
+                "threads": config.get_asr_threads(),
+            },
         }
 
     def initialize(self) -> None:
         self.whisper.initialize()
         self.indic.initialize()
+        if config.is_silero_vad_enabled():
+            try:
+                from .voice.vad import vad
+
+                vad.initialize()
+            except Exception as exc:
+                logger.warning("Silero VAD initialization skipped: %s", exc)
+        if config.get_profile_name() == "accuracy" or config.get_asr_model() == "large-v3-turbo":
+            try:
+                from .voice.router import upgrade_router
+
+                upgrade_router(self)
+            except Exception as exc:
+                logger.warning("V2 router upgrade skipped: %s", exc)
 
     async def transcribe_pcm(
         self,
@@ -270,6 +305,11 @@ class DualSpeechRouter:
         if mode not in {"tanglish", "ta", "en"}:
             raise ValueError("Speech mode must be tanglish, ta, or en.")
         validated = validate_audio_buffer(samples)
+        if config.is_silero_vad_enabled():
+            from .voice.vad import vad
+
+            if vad.status == "ready":
+                validated = vad.filter_speech_only(validated)
         if self.status != "ready":
             raise RuntimeError(self.error or "Local speech model is still loading; try again shortly.")
         async with self.lock:

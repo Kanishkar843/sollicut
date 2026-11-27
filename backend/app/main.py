@@ -18,6 +18,8 @@ from . import media, storage
 from .models import ApplyRequest, Asset, EditOperation, GenerateRequest, Job, ProjectState, ReelSettings, Snapshot, VisualEditRequest
 from .parser import parse, parse_dual_command
 from .speech import DualSpeechRouter, SAMPLE_RATE
+from .understanding.context_manager import clear_context, get_context
+from .voice.audio_quality import assess as assess_audio_quality
 from . import generation
 
 Image.MAX_IMAGE_PIXELS = 50_000_000
@@ -120,6 +122,7 @@ def capabilities():
         "asr_engines": speech_caps["asr_engines"],
         "supported_modes": speech_caps["supported_modes"],
         "streaming_ws": speech_caps["streaming_ws"],
+        "voice_profile": speech_caps.get("voice_profile"),
         "limits": {
             "images": 5,
             "media_items": 5,
@@ -150,6 +153,7 @@ async def delete_project(project_id: str):
         shutil.rmtree(storage.project_dir(project_id))
         for job_id in [k for k, v in jobs.items() if v.project_id == project_id]:
             del jobs[job_id]
+        clear_context(project_id)
         return {"deleted": True}
     finally:
         busy.discard(project_id)
@@ -446,6 +450,10 @@ def dispatch(project, parsed):
     quota(project.id, 50 * 1024 * 1024)
     # Validate operations synchronously before queueing so invalid clip indices/trims return 422 immediately.
     apply_operations(project, parsed.operations)
+    get_context(project.id).record(
+        parsed.original_transcript,
+        [op.model_dump() for op in parsed.operations],
+    )
     job = _enqueue_job(project, "Waiting for renderer")
     track(render_job(project, parsed, job))
     return {"parsed_command": parsed, "requires_clarification": False, "job_id": job.id}
@@ -697,6 +705,10 @@ async def voice_ws(
 
                         try:
                             parsed = parse_dual_command(dual_res, project)
+                            quality = assess_audio_quality(samples)
+                            for w in quality.warnings:
+                                if w not in parsed.warnings:
+                                    parsed.warnings.append(w)
                             preview_only = (not auto_apply) or bool(payload.get("preview"))
                             if preview_only:
                                 result = {
@@ -801,6 +813,10 @@ async def voice(
         if action_mode == "generate":
             return {"generation_prompt": dual_res.primary_text, "transcript": dual_res.primary_text, "requires_confirmation": True}
         parsed = parse_dual_command(dual_res, project)
+        quality = assess_audio_quality(samples)
+        for w in quality.warnings:
+            if w not in parsed.warnings:
+                parsed.warnings.append(w)
         if not auto_apply:
             result = {
                 "parsed_command": parsed,

@@ -107,6 +107,10 @@ class PcmProcessor extends AudioWorkletProcessor {
     this._state = null   // filter state (input history), length P-1
     this._phase = 0      // current polyphase index
     this._inFrac = 0     // fractional input position accumulator
+    this._linearMode = false
+    this._linPrev = 0
+    this._linHasPrev = false
+    this._linPos = 0
 
     this._buffer = new Int16Array(CHUNK_SAMPLES)
     this._offset = 0
@@ -115,8 +119,11 @@ class PcmProcessor extends AudioWorkletProcessor {
     this._inputSampleRate = 0
 
     this.port.onmessage = (ev) => {
-      if (ev.data && ev.data.type === 'flush') {
+      if (!ev.data) return
+      if (ev.data.type === 'flush') {
         this._flushing = true
+      } else if (ev.data.type === 'config' && ev.data.resampler === 'linear') {
+        this._linearMode = true
       }
     }
   }
@@ -165,6 +172,26 @@ class PcmProcessor extends AudioWorkletProcessor {
       for (let i = 0; i < channel.length; i++) {
         this._pushSample(channel[i])
       }
+      return
+    }
+
+    if (this._linearMode) {
+      const ratio = this._inputSampleRate / TARGET_RATE
+      if (!this._linHasPrev) {
+        this._linPrev = channel[0]
+        this._linHasPrev = true
+      }
+      let pos = this._linPos
+      while (pos < channel.length) {
+        const idx = Math.floor(pos)
+        const frac = pos - idx
+        const s0 = idx === 0 ? this._linPrev : channel[idx - 1]
+        const s1 = channel[idx]
+        this._pushSample(s0 + (s1 - s0) * frac)
+        pos += ratio
+      }
+      this._linPrev = channel[channel.length - 1]
+      this._linPos = pos - channel.length
       return
     }
 

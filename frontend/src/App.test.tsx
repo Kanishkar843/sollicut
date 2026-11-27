@@ -650,3 +650,59 @@ test('Phase 8 MicrophoneSettings renders cleanly without Permissions API', () =>
   expect(screen.getByRole('region', { name: 'Microphone settings' })).toBeInTheDocument()
   expect(screen.getByText(/Using system default microphone/i)).toBeInTheDocument()
 })
+
+test('Phase 9 VoiceButton forwards linear resampler config to AudioWorklet', async () => {
+  const posted: unknown[] = []
+  class MockWebSocket {
+    static OPEN = 1
+    binaryType = 'blob'
+    readyState = 1
+    onopen: (() => void) | null = null
+    onmessage: ((ev: { data: string }) => void) | null = null
+    onerror: (() => void) | null = null
+    onclose: (() => void) | null = null
+    constructor() { queueMicrotask(() => this.onopen?.()) }
+    send() {}
+    close() { this.readyState = 3 }
+  }
+  class MockWorkletNode {
+    port = {
+      onmessage: null as ((ev: { data: unknown }) => void) | null,
+      postMessage(msg: unknown) { posted.push(msg) },
+    }
+    disconnect() {}
+  }
+  class MockAudioContext {
+    state = 'running'
+    audioWorklet = { addModule: vi.fn().mockResolvedValue(undefined) }
+    createMediaStreamSource() { return { connect: vi.fn() } }
+    close() { this.state = 'closed'; return Promise.resolve() }
+  }
+  vi.stubGlobal('WebSocket', MockWebSocket)
+  vi.stubGlobal('AudioContext', MockAudioContext)
+  vi.stubGlobal('AudioWorkletNode', MockWorkletNode)
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      getUserMedia: vi.fn().mockResolvedValue({
+        getTracks: () => [{ stop: vi.fn() }],
+        getAudioTracks: () => [{ onended: null }],
+      }),
+    },
+  })
+
+  render(
+    <VoiceButton
+      disabled={false}
+      projectId="proj-prof"
+      mode="en"
+      resampler="linear"
+      onStreamResult={vi.fn()}
+      onAudio={vi.fn()}
+      onError={vi.fn()}
+    />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Start recording' }))
+  await screen.findByRole('button', { name: 'Stop recording' })
+  expect(posted).toContainEqual({ type: 'config', resampler: 'linear' })
+})

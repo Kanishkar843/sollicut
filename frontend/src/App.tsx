@@ -822,6 +822,7 @@ export default function App() {
                   projectId={project?.id}
                   mode={asrMode}
                   previewOnly={true}
+                  resampler={caps?.voice_profile?.resampler ?? 'fir_kaiser'}
                   onModeChange={setAsrMode}
                   onProcessing={() => {
                     setBusy(true)

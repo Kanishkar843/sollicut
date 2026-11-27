@@ -43,6 +43,7 @@ type VoiceButtonProps = {
   projectId?: string
   mode?: AsrMode
   previewOnly?: boolean
+  resampler?: 'linear' | 'fir_kaiser'
   onModeChange?: (mode: AsrMode) => void
   onStreamResult?: (command: Command) => void
   onProcessing?: () => void
@@ -56,6 +57,7 @@ export default function VoiceButton({
   projectId,
   mode,
   previewOnly = false,
+  resampler = 'fir_kaiser',
   onModeChange,
   onStreamResult,
   onProcessing,
@@ -80,6 +82,7 @@ export default function VoiceButton({
         projectId,
         mode: activeMode,
         previewOnly,
+        resampler,
         onStreamResult,
         onProcessing,
         onAudio,

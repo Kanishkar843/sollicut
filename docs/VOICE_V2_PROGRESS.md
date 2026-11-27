@@ -16,9 +16,9 @@
 | **P5** | Multilingual Normalization V2 | ✅ COMPLETE | `8ea3082` |
 | **P6** | Semantic Command Planner | ✅ COMPLETE | `8ea3082` |
 | **P7** | Context Manager + Validation | ✅ COMPLETE | `8ea3082` |
-| **P8** | Voice Director UX | ✅ COMPLETE | (this commit) |
-| **P9** | CPU Profiling & Deployment Profiles | 🔄 NEXT | — |
-| **P10** | Benchmarking Framework | 🔲 PENDING | — |
+| **P8** | Voice Director UX | ✅ COMPLETE | `402b3fe` |
+| **P9** | CPU Profiling & Deployment Profiles | ✅ COMPLETE | (this commit) |
+| **P10** | Benchmarking Framework | 🔄 NEXT | — |
 | **P11** | Final Regression Suite | 🔲 PENDING | — |
 
 ---
