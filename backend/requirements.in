@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-multipart
+pydantic
+Pillow
+faster-whisper
+httpx
+pytest
+reportlab
+pypdf
