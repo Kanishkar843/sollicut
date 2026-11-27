@@ -233,7 +233,7 @@ export function useRecorder() {
         return false
       }
 
-      ws = new WebSocket(buildVoiceWsUrl(projectId, mode))
+      ws = new WebSocket(buildVoiceWsUrl(projectId, mode, crypto.randomUUID()))
       ws.binaryType = 'arraybuffer'
       await new Promise<void>((resolve, reject) => {
         if (!ws) return reject(new Error('No WebSocket'))
@@ -324,7 +324,7 @@ export function useRecorder() {
             setRecorderState('processing')
             onProcessing?.()
             try {
-              ws.send(JSON.stringify({ event: 'stop' }))
+              ws.send(JSON.stringify({ event: 'stop', command_id: crypto.randomUUID() }))
             } catch {
               wsFailed = true
             }

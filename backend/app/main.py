@@ -567,13 +567,26 @@ def _read_wav_pcm_sync(wav_path: Path) -> np.ndarray | None:
         return None
 
 
+WS_SESSION_TIMEOUT_SECONDS = 37  # hard cap per session (30s record + 7s transcription)
+_ws_seen_commands: dict[str, set[str]] = {}  # session_id → set of seen command_ids
+
+
 @app.websocket("/ws/voice/{project_id}")
-async def voice_ws(websocket: WebSocket, project_id: str, mode: str = "tanglish"):
+async def voice_ws(
+    websocket: WebSocket,
+    project_id: str,
+    mode: str = "tanglish",
+    session_id: str | None = None,
+):
     await websocket.accept()
+
+    # --- Validate mode ---
     if mode not in {"tanglish", "ta", "en"}:
         await websocket.send_json({"error": "Invalid mode. Use tanglish, ta, or en."})
         await websocket.close(code=4002)
         return
+
+    # --- Validate project exists ---
     try:
         storage.load(project_id)
     except (ValueError, FileNotFoundError):
@@ -581,87 +594,143 @@ async def voice_ws(websocket: WebSocket, project_id: str, mode: str = "tanglish"
         await websocket.close(code=4004)
         return
 
+    # --- Session tracking ---
+    sid = session_id or str(uuid4())
+    seen_commands: set[str] = _ws_seen_commands.setdefault(sid, set())
+
     pcm_buf = bytearray()
     claimed = False
     result = None
+    expected_seq = 0
+
+    async def _session():
+        nonlocal claimed, result, expected_seq
+        try:
+            while True:
+                message = await websocket.receive()
+                if message.get("type") == "websocket.disconnect":
+                    break
+
+                if "bytes" in message and message["bytes"] is not None:
+                    chunk = message["bytes"]
+                    if len(pcm_buf) + len(chunk) > MAX_WS_PCM_BYTES:
+                        pcm_buf.clear()
+                        await websocket.send_json({"error": "Recording exceeds the 30-second limit."})
+                        await websocket.close(code=1009)
+                        return
+                    pcm_buf.extend(chunk)
+                    expected_seq += 1
+
+                elif "text" in message and message["text"] is not None:
+                    # --- Parse control frame ---
+                    try:
+                        payload = json.loads(message["text"])
+                    except json.JSONDecodeError:
+                        # Structured error, don't disconnect — let client recover
+                        await websocket.send_json({"error": "Malformed control frame: expected JSON object."})
+                        continue
+                    if not isinstance(payload, dict):
+                        await websocket.send_json({"error": "Malformed control frame: expected JSON object."})
+                        continue
+
+                    event = payload.get("event")
+                    command_id = payload.get("command_id")
+
+                    # --- Idempotency: reject duplicate command_ids ---
+                    if command_id and event in {"stop", "cancel"}:
+                        if command_id in seen_commands:
+                            await websocket.send_json({
+                                "error": f"Duplicate command_id '{command_id}' — already processed.",
+                                "command_id": command_id,
+                            })
+                            await websocket.close(code=1000)
+                            return
+                        seen_commands.add(command_id)
+
+                    if event == "cancel":
+                        pcm_buf.clear()
+                        await websocket.close(code=1000)
+                        return
+
+                    if event == "stop":
+                        valid_len = len(pcm_buf) - (len(pcm_buf) % 2)
+                        samples = np.frombuffer(pcm_buf[:valid_len], dtype=np.int16).astype(np.float32) / 32768.0
+                        pcm_buf.clear()
+
+                        try:
+                            project = claim(project_id)
+                            claimed = True
+                            dual_res = await speech.transcribe_pcm(samples, mode=mode)  # type: ignore[arg-type]
+                        except HTTPException as exc:
+                            await websocket.send_json({"error": exc.detail, "command_id": command_id})
+                            await websocket.close(code=1000)
+                            return
+                        except ValueError as exc:
+                            await websocket.send_json({"error": str(exc), "command_id": command_id})
+                            await websocket.close(code=1000)
+                            return
+                        except (RuntimeError, OSError):
+                            await websocket.send_json({
+                                "error": speech.error or "Transcription failed. Check the recording and try again.",
+                                "command_id": command_id,
+                            })
+                            await websocket.close(code=1000)
+                            return
+
+                        try:
+                            parsed = parse_dual_command(dual_res, project)
+                            result = dispatch(project, parsed)
+                        except HTTPException as exc:
+                            await websocket.send_json({"error": exc.detail, "command_id": command_id})
+                            await websocket.close(code=1000)
+                            return
+
+                        secondary = (
+                            dual_res.tamil_transcript
+                            if mode == "tanglish" and dual_res.tamil_transcript and dual_res.tamil_transcript != dual_res.primary_text
+                            else None
+                        )
+                        response_payload = {
+                            **result,
+                            "transcript": dual_res.primary_text,
+                            "secondary_transcript": secondary,
+                            "language_mode": parsed.language_mode,
+                            "asr_mode": mode,
+                            "engines_used": dual_res.engines_used,
+                            "asr_elapsed_ms": int(round(dual_res.elapsed_seconds * 1000)),
+                            "session_id": sid,
+                            "command_id": command_id,
+                        }
+                        await websocket.send_json(jsonable_encoder(response_payload))
+                        await websocket.close(code=1000)
+                        return
+
+                    # Unknown event — send structured error, do not disconnect
+                    await websocket.send_json({"error": f"Unknown event '{event}'. Use stop or cancel."})
+
+        except WebSocketDisconnect:
+            pass
+        finally:
+            pcm_buf.clear()
+            if claimed and (not result or "job_id" not in result):
+                busy.discard(project_id)
+            # NOTE: intentionally keep _ws_seen_commands[sid] alive so the same
+            # session_id cannot replay a command_id across reconnects.
+            # Garbage-collect when the idempotency table grows too large.
+            if len(_ws_seen_commands) > 2000:
+                oldest = next(iter(_ws_seen_commands))
+                _ws_seen_commands.pop(oldest, None)
+
     try:
-        while True:
-            message = await websocket.receive()
-            if message.get("type") == "websocket.disconnect":
-                break
-            if "bytes" in message and message["bytes"] is not None:
-                chunk = message["bytes"]
-                if len(pcm_buf) + len(chunk) > MAX_WS_PCM_BYTES:
-                    pcm_buf.clear()
-                    await websocket.send_json({"error": "Recording exceeds the 30-second limit."})
-                    await websocket.close(code=1009)
-                    return
-                pcm_buf.extend(chunk)
-            elif "text" in message and message["text"] is not None:
-                try:
-                    payload = json.loads(message["text"])
-                except json.JSONDecodeError:
-                    await websocket.send_json({"error": "Invalid JSON control frame."})
-                    await websocket.close(code=1003)
-                    return
-                event = payload.get("event")
-                if event == "cancel":
-                    pcm_buf.clear()
-                    await websocket.close(code=1000)
-                    return
-                if event == "stop":
-                    valid_len = len(pcm_buf) - (len(pcm_buf) % 2)
-                    samples = np.frombuffer(pcm_buf[:valid_len], dtype=np.int16).astype(np.float32) / 32768.0
-                    pcm_buf.clear()
-
-                    try:
-                        project = claim(project_id)
-                        claimed = True
-                        dual_res = await speech.transcribe_pcm(samples, mode=mode)  # type: ignore[arg-type]
-                    except HTTPException as exc:
-                        await websocket.send_json({"error": exc.detail})
-                        await websocket.close(code=1000)
-                        return
-                    except ValueError as exc:
-                        await websocket.send_json({"error": str(exc)})
-                        await websocket.close(code=1000)
-                        return
-                    except (RuntimeError, OSError):
-                        await websocket.send_json({"error": speech.error or "Transcription failed. Check the recording and try again."})
-                        await websocket.close(code=1000)
-                        return
-
-                    try:
-                        parsed = parse_dual_command(dual_res, project)
-                        result = dispatch(project, parsed)
-                    except HTTPException as exc:
-                        await websocket.send_json({"error": exc.detail})
-                        await websocket.close(code=1000)
-                        return
-
-                    secondary = (
-                        dual_res.tamil_transcript
-                        if mode == "tanglish" and dual_res.tamil_transcript and dual_res.tamil_transcript != dual_res.primary_text
-                        else None
-                    )
-                    response_payload = {
-                        **result,
-                        "transcript": dual_res.primary_text,
-                        "secondary_transcript": secondary,
-                        "language_mode": parsed.language_mode,
-                        "asr_mode": mode,
-                        "engines_used": dual_res.engines_used,
-                        "asr_elapsed_ms": int(round(dual_res.elapsed_seconds * 1000)),
-                    }
-                    await websocket.send_json(jsonable_encoder(response_payload))
-                    await websocket.close(code=1000)
-                    return
-    except WebSocketDisconnect:
-        pass
-    finally:
+        await asyncio.wait_for(_session(), timeout=WS_SESSION_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
         pcm_buf.clear()
+        with contextlib.suppress(Exception):
+            await websocket.send_json({"error": "Session timeout: recording exceeded the maximum allowed duration."})
+            await websocket.close(code=1001)
         if claimed and (not result or "job_id" not in result):
             busy.discard(project_id)
+        _ws_seen_commands.pop(sid, None)
 
 
 @app.post("/api/projects/{project_id}/voice-command")

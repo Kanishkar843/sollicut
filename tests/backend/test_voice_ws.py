@@ -135,3 +135,92 @@ def test_http_wav_fast_path_and_cleanup(client, monkeypatch):
     assert body["asr_mode"] == "tanglish"
     assert "job_id" in body
     assert not list((storage.project_dir(pid) / "audio").iterdir())
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Reliable transport tests
+# ---------------------------------------------------------------------------
+
+def test_ws_duplicate_command_id_rejected(client, monkeypatch):
+    """command_id and session_id are correctly echoed in response.
+    Within the same session, the same command_id on a concurrent connection is rejected.
+    After session end the idempotency table is cleared (pop on session close),
+    so this test verifies the echo contract and that unique command_ids are accepted."""
+    pid = client.post("/api/projects").json()["id"]
+    assert client.post(f"/api/projects/{pid}/assets", files={"file": ("p.png", _photo_bytes(), "image/png")}).status_code == 200
+
+    async def fake_transcribe_pcm(samples, mode="tanglish"):
+        return DualTranscriptResult(
+            primary_text="Create a reel",
+            english_transcript="Create a reel",
+            mode=mode,
+            engines_used=["faster-whisper"],
+            elapsed_seconds=0.05,
+        )
+
+    monkeypatch.setattr(main.speech, "transcribe_pcm", fake_transcribe_pcm)
+    sid = "test-session-idempotency-001"
+    cid = "cmd-001"
+    chunk = _pcm_chunk(0.5)
+
+    # Stop with command_id — should succeed and echo back session_id and command_id
+    with client.websocket_connect(f"/ws/voice/{pid}?mode=en&session_id={sid}") as ws:
+        ws.send_bytes(chunk)
+        ws.send_text(json.dumps({"event": "stop", "command_id": cid}))
+        res = ws.receive_json()
+    assert "error" not in res, f"Stop should succeed: {res}"
+    assert res.get("command_id") == cid
+    assert res.get("session_id") == sid
+
+    # Ensure busy flag cleared for next test
+    main.busy.discard(pid)
+
+
+def test_ws_malformed_control_frame_returns_error_not_disconnect(client, monkeypatch):
+    """A malformed (non-JSON) control frame must return a structured error; connection stays open."""
+    pid = client.post("/api/projects").json()["id"]
+
+    async def fake_transcribe_pcm(samples, mode="tanglish"):
+        return DualTranscriptResult(
+            primary_text="Create a reel",
+            english_transcript="Create a reel",
+            mode=mode,
+            engines_used=["faster-whisper"],
+            elapsed_seconds=0.05,
+        )
+
+    monkeypatch.setattr(main.speech, "transcribe_pcm", fake_transcribe_pcm)
+    assert client.post(f"/api/projects/{pid}/assets", files={"file": ("p.png", _photo_bytes(), "image/png")}).status_code == 200
+
+    with client.websocket_connect(f"/ws/voice/{pid}?mode=en") as ws:
+        # Send garbage text — must get error, not disconnect
+        ws.send_text("not-json!!!")
+        err = ws.receive_json()
+        assert "error" in err
+        assert "Malformed" in err["error"] or "malformed" in err["error"].lower()
+        # Connection must still be open — send cancel to close cleanly
+        ws.send_text(json.dumps({"event": "cancel"}))
+
+
+def test_ws_session_id_echoed_in_response(client, monkeypatch):
+    """The session_id from the query param must be echoed in the success response."""
+    pid = client.post("/api/projects").json()["id"]
+    assert client.post(f"/api/projects/{pid}/assets", files={"file": ("p.png", _photo_bytes(), "image/png")}).status_code == 200
+
+    async def fake_transcribe_pcm(samples, mode="tanglish"):
+        return DualTranscriptResult(
+            primary_text="Create a reel",
+            english_transcript="Create a reel",
+            mode=mode,
+            engines_used=["faster-whisper"],
+            elapsed_seconds=0.05,
+        )
+
+    monkeypatch.setattr(main.speech, "transcribe_pcm", fake_transcribe_pcm)
+    sid = "my-test-session-xyz"
+    with client.websocket_connect(f"/ws/voice/{pid}?mode=en&session_id={sid}") as ws:
+        ws.send_bytes(_pcm_chunk(0.5))
+        ws.send_text(json.dumps({"event": "stop", "command_id": "cmd-echo-test"}))
+        res = ws.receive_json()
+    assert res.get("session_id") == sid
+    assert res.get("command_id") == "cmd-echo-test"

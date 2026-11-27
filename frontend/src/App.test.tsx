@@ -368,7 +368,16 @@ test('WebSocket AudioWorklet streaming sends PCM frames, stop control, and rende
 
   fireEvent.click(screen.getByRole('button', { name: 'Stop recording' }))
   await waitFor(() => expect(onProcessing).toHaveBeenCalled())
-  await waitFor(() => expect(sentMessages[1]).toBe(JSON.stringify({ event: 'stop' })))
+  await waitFor(() => {
+    const stopMsg = sentMessages.find((m) => typeof m === 'string' && (m as string).includes('"stop"'))
+    expect(stopMsg).toBeDefined()
+    const parsed = JSON.parse(stopMsg as string)
+    expect(parsed.event).toBe('stop')
+    // command_id is optional UUID — just verify it's a string if present
+    if (parsed.command_id !== undefined) {
+      expect(typeof parsed.command_id).toBe('string')
+    }
+  })
 
   wsRef.current?.onmessage?.({
     data: JSON.stringify({

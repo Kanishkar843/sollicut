@@ -54,6 +54,9 @@ export type Command = {
   engines_used?: string[]
   asr_elapsed_ms?: number
   requires_clarification?: boolean
+  /** V2 transport fields */
+  session_id?: string
+  command_id?: string
 }
 export type Capabilities = {
   generation?: { configured: boolean; status: string; label?: string; model: string }
@@ -65,9 +68,10 @@ export type Capabilities = {
   limits?: { media_items?: number; image_mb?: number; video_mb?: number; video_seconds?: number }
 }
 
-export function buildVoiceWsUrl(projectId: string, mode: AsrMode): string {
+export function buildVoiceWsUrl(projectId: string, mode: AsrMode, sessionId?: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}/ws/voice/${projectId}?mode=${encodeURIComponent(mode)}`
+  const sid = sessionId ?? crypto.randomUUID()
+  return `${proto}//${window.location.host}/ws/voice/${projectId}?mode=${encodeURIComponent(mode)}&session_id=${encodeURIComponent(sid)}`
 }
 
 export function encodeWav16k(chunks: Int16Array[], sampleRate = 16000): Blob {
