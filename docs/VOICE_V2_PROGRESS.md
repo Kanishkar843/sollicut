@@ -18,8 +18,8 @@
 | **P7** | Context Manager + Validation | ✅ COMPLETE | `8ea3082` |
 | **P8** | Voice Director UX | ✅ COMPLETE | `402b3fe` |
 | **P9** | CPU Profiling & Deployment Profiles | ✅ COMPLETE | `feb2ac5` |
-| **P10** | Benchmarking Framework | ✅ COMPLETE | (this commit) |
-| **P11** | Final Regression Suite | 🔄 NEXT | — |
+| **P10** | Benchmarking Framework | ✅ COMPLETE | `ebc87a2` |
+| **P11** | Final Regression Suite | ✅ COMPLETE | (this commit) |
 
 ---
 
