@@ -13,3 +13,4 @@
 Native Windows renderer tests initially failed because Pillow had no RAQM. Linux Docker tests passed. This is why Docker is the supported runtime.
 
 Not verified: real participant Tanglish/Tamil microphone workflow, audible/visible playback acceptance, independent person's clone, YouTube publication, final hackathon submission. Do not describe the entire P0 checklist as passed.
+`nFresh-clone attempt: the plain Compose build encountered this host's TLS interception when fetching npm/model dependencies. A fresh-clone build with the optional trusted CA secret was started; independent-person acceptance remains pending. The original application at localhost:8080 remains healthy.
