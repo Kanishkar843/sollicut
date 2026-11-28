@@ -39,8 +39,14 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 .landing-motion-toggle{position:fixed;right:16px;bottom:16px;z-index:15;display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid rgba(215,239,65,.32);background:rgba(15,19,16,.84);color:#e4ecd9;font-size:11.5px;font-weight:600;backdrop-filter:blur(10px);box-shadow:0 8px 24px -10px rgba(0,0,0,.75)}
 .landing-motion-toggle svg{color:#d7ef41}
 .landing-motion-toggle:hover:not(:disabled){border-color:#d7ef41;background:rgba(24,31,22,.94)}
-.landing nav{position:sticky;top:0;z-index:10;padding:18px 6%;display:flex;align-items:center;gap:32px;border-bottom:1px solid rgba(36,42,33,.88);background:rgba(13,16,14,.76);backdrop-filter:blur(14px)}
-.landing nav .brand{margin-right:auto}
+.landing nav{position:sticky;top:0;z-index:10;padding:16px clamp(18px,2.6vw,38px);display:flex;align-items:center;gap:22px;border-bottom:0;background:linear-gradient(180deg,rgba(11,13,12,.62) 0%,rgba(11,13,12,.18) 68%,transparent 100%);backdrop-filter:none}
+.landing nav .brand{margin-right:auto;font-family:'Syne','Plus Jakarta Sans',Inter,sans-serif;font-size:19px;font-weight:700;letter-spacing:-.5px;color:#f6faef;text-shadow:0 2px 14px rgba(0,0,0,.78)}
+.landing nav .brand-icon{border-radius:9px;box-shadow:0 6px 18px -6px rgba(215,239,65,.45)}
+.landing nav>a:not(.brand):not(.lime-button){font-family:'Plus Jakarta Sans',Inter,sans-serif;font-size:13.5px;font-weight:500;letter-spacing:.2px;color:rgba(242,247,238,.88);text-shadow:0 2px 12px rgba(0,0,0,.82);transition:color .15s}
+.landing nav>a:not(.brand):not(.lime-button):hover{color:#d7ef41}
+.landing nav .theme-toggle{border-radius:999px;background:rgba(15,19,16,.42);border-color:rgba(255,255,255,.18);backdrop-filter:blur(10px)}
+.landing nav .theme-toggle:hover:not(:disabled){background:rgba(24,31,22,.68);border-color:rgba(215,239,65,.55)}
+.landing nav .lime-button{font-family:'Plus Jakarta Sans',Inter,sans-serif;border-radius:999px;padding:9px 18px;font-size:13px;font-weight:700;box-shadow:0 8px 22px -8px rgba(0,0,0,.68)}
 .landing-hero{width:100%;max-width:none;min-height:clamp(500px,calc(100vh - 72px),780px);padding:clamp(18px,3vh,30px) clamp(18px,2.6vw,38px) clamp(58px,8vh,84px);display:flex;justify-content:space-between;align-items:stretch;gap:24px;text-align:left}
 .landing-hero-panel{padding:0;border-radius:0;background:transparent;border:0;backdrop-filter:none;box-shadow:none}
 .landing-hero-left{align-self:flex-start;width:min(100%,370px)}
@@ -345,7 +351,7 @@ footer{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:
 }
 @media(max-width:760px){
   .studio-workspace{grid-template-columns:1fr}
-  .landing nav{gap:14px;padding:16px}
+  .landing nav{gap:12px;padding:14px 16px}
   .landing nav>a:nth-child(2){display:none}
   .landing-bg-video{object-position:50% 46%}
   .landing-bg-poster{background-position:50% 46%}
@@ -405,9 +411,13 @@ footer{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:
 :root[data-theme="light"] .landing-motion-toggle{background:rgba(255,255,255,.92);border-color:#bfd6fb;color:#1e3a8a;box-shadow:0 8px 20px -10px rgba(30,58,138,.28)}
 :root[data-theme="light"] .landing-motion-toggle svg{color:#2563eb}
 :root[data-theme="light"] .landing-motion-toggle:hover:not(:disabled){border-color:#60a5fa;background:#eff6ff}
-:root[data-theme="light"] .landing nav{background:rgba(255,255,255,.84);border-bottom-color:#dbe5f5;backdrop-filter:blur(14px)}
-:root[data-theme="light"] .landing nav>a:not(.brand):not(.lime-button){color:#334155}
+:root[data-theme="light"] .landing nav{background:linear-gradient(180deg,rgba(244,247,252,.72) 0%,rgba(244,247,252,.22) 68%,transparent 100%);border-bottom:0;backdrop-filter:none}
+:root[data-theme="light"] .landing nav .brand{color:#0f172a;text-shadow:0 2px 14px rgba(244,247,252,.95),0 0 6px rgba(255,255,255,.9)}
+:root[data-theme="light"] .landing nav .brand-icon{box-shadow:0 6px 18px -6px rgba(37,99,235,.4)}
+:root[data-theme="light"] .landing nav>a:not(.brand):not(.lime-button){color:#1e293b;text-shadow:0 2px 14px rgba(244,247,252,.95)}
 :root[data-theme="light"] .landing nav>a:not(.brand):not(.lime-button):hover{color:#1d4ed8}
+:root[data-theme="light"] .landing nav .theme-toggle{background:rgba(255,255,255,.72);border-color:rgba(37,99,235,.22)}
+:root[data-theme="light"] .landing nav .theme-toggle:hover:not(:disabled){background:rgba(224,236,255,.88);border-color:#60a5fa}
 :root[data-theme="light"] .landing-hero .eyebrow{color:#1d4ed8;text-shadow:0 2px 14px rgba(244,247,252,.96),0 0 6px rgba(255,255,255,.92)}
 :root[data-theme="light"] .landing-hero h1{color:#0f172a;text-shadow:0 2px 18px rgba(244,247,252,.96),0 0 6px rgba(255,255,255,.92)}
 :root[data-theme="light"] .landing-hero h1 em{color:#2563eb;text-shadow:0 2px 18px rgba(244,247,252,.96),0 0 6px rgba(255,255,255,.92)}
