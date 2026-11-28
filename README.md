@@ -6,11 +6,10 @@
 
 ## Screenshots
 
-### Landing Page
-![SolliCut Landing Page](docs/screenshots/landing-light.jpg)
-
-### Studio Workspace
-![SolliCut Studio Workspace](docs/screenshots/studio-light.jpg)
+| View | Dark Theme (Lime) | Light Theme (White & Blue) |
+| --- | --- | --- |
+| **Landing Page** | <img src="docs/screenshots/landing-dark.jpg" alt="SolliCut Landing Dark Theme" width="380" /> | <img src="docs/screenshots/landing-light.jpg" alt="SolliCut Landing Light Theme" width="380" /> |
+| **Studio Workspace** | <img src="docs/screenshots/studio-dark.jpg" alt="SolliCut Studio Dark Theme" width="380" /> | <img src="docs/screenshots/studio-light.jpg" alt="SolliCut Studio Light Theme" width="380" /> |
 
 ## Quick Start with Docker
 
