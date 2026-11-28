@@ -64,7 +64,9 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 .landing-features svg{color:#d7ef41}
 .landing-features h2{font-size:21px;margin:14px 0 10px}
 .landing-features p{font-size:15px;color:#bac4b1;line-height:1.65;margin:0}
-.landing footer{border-top:1px solid rgba(36,42,33,.9);padding:26px 6%;font-size:13px;color:#a5b29c;display:flex;justify-content:space-between;align-items:center;gap:16px;background:rgba(13,16,14,.86);backdrop-filter:blur(12px)}
+.landing footer{border-top:0;padding:28px clamp(118px,12vw,152px) 28px clamp(18px,2.6vw,38px);font-family:'Plus Jakarta Sans',Inter,sans-serif;font-size:13px;color:#b8c5ad;display:flex;justify-content:space-between;align-items:center;gap:16px;background:linear-gradient(180deg,transparent 0%,rgba(11,13,12,.38) 42%,rgba(11,13,12,.78) 100%);backdrop-filter:none}
+.landing footer a{color:#e6efe0;font-weight:500;transition:color .15s}
+.landing footer a:hover{color:#d7ef41}
 
 /* Studio Shell — Single-Viewport Workstation Grid (No Outer Scroll) */
 .studio-shell{height:100vh;overflow:hidden;display:flex;flex-direction:column;background:#0b0d0c}
@@ -362,7 +364,7 @@ footer{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:
   .landing-motion-toggle{right:12px;bottom:12px;padding:6px 10px;font-size:11px}
   .landing-features{grid-template-columns:1fr;gap:20px;padding:32px 20px 64px}
   .landing-hero p{font-size:15.5px}
-  .landing footer{flex-direction:column;text-align:center}
+  .landing footer{flex-direction:column;text-align:center;padding:24px 16px 64px}
 
   .studio-topbar{padding:0 12px}
   .studio-topbar .quiet{padding:6px 10px;font-size:12px}
@@ -427,7 +429,9 @@ footer{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:
 :root[data-theme="light"] .landing-features article{background:rgba(255,255,255,.88);border-color:#dbe5f5;box-shadow:0 8px 24px -18px rgba(37,99,235,.22);backdrop-filter:blur(12px)}
 :root[data-theme="light"] .landing-features svg{color:#2563eb}
 :root[data-theme="light"] .landing-features p{color:#334155}
-:root[data-theme="light"] .landing footer{border-top-color:#dbe5f5;color:#526581;background:rgba(255,255,255,.90);backdrop-filter:blur(12px)}
+:root[data-theme="light"] .landing footer{border-top:0;color:#334155;background:linear-gradient(180deg,transparent 0%,rgba(244,247,252,.44) 42%,rgba(244,247,252,.84) 100%);backdrop-filter:none}
+:root[data-theme="light"] .landing footer a{color:#1e293b}
+:root[data-theme="light"] .landing footer a:hover{color:#1d4ed8}
 :root[data-theme="light"] .ffl-hint{color:#1e3a8a;background:rgba(255,255,255,.86);border:1px solid #bfd6fb;backdrop-filter:blur(8px)}
 :root[data-theme="light"] .ffl-hint:hover{color:#2563eb;border-color:#60a5fa}
 
