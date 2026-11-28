@@ -2,6 +2,16 @@
 
 **Speak it. Cut it. Sell it.** — A voice-first promotional reel studio for small businesses supporting **Tamil, Tanglish, and English**.
 
+- **Live Deployment:** https://sollicut.vercel.app
+
+## Screenshots
+
+### Landing Page
+![SolliCut Landing Page](docs/screenshots/landing-light.jpg)
+
+### Studio Workspace
+![SolliCut Studio Workspace](docs/screenshots/studio-light.jpg)
+
 ## Quick Start with Docker
 
 Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (with Docker Compose).
@@ -27,29 +37,8 @@ No `.env` file or API key is required for core editing, media upload, voice comm
 - **Multi-Clip Timeline & Inspector:** Upload photos and videos (MP4/MOV/WebM), auto-size duration to your media, trim/split/reorder clips, add text overlays, captions, stickers, transitions, filters, keyframes, voiceover narration, inbuilt soothing music, or your own audio.
 - **MP4 Export:** Renders 9:16, 16:9, 1:1, and 4:5 MP4 reels with undo/redo history.
 
-## Local Development (Without Docker)
-
-```sh
-# 1. Build frontend
-cd frontend
-npm ci
-npm run build
-cd ..
-
-# 2. Install backend dependencies (requires Python 3.11+ and FFmpeg in PATH)
-pip install -r backend/requirements.lock
-python scripts/generate_demo_assets.py
-
-# 3. Start server
-python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8080
-```
-
 ## Verification
 
 ```sh
-# Frontend tests & build
-cd frontend && npm test && npm run build
-
-# Backend tests (or inside Docker)
 docker compose exec -T sollicut python -m pytest tests/backend -q
 ```
