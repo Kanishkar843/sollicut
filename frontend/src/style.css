@@ -122,11 +122,20 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 /* Right Voice + Editing Inspector */
 .inspector-column{display:flex;flex-direction:column;gap:8px;min-width:0;min-height:0;overflow:hidden}
 .voice-card,.inspector-card{background:#121512;border:1px solid #262c22;border-radius:12px;padding:9px 11px}
-.voice-card{flex-shrink:0}
+.voice-card{flex-shrink:0;max-height:48%;overflow-y:auto}
 .select-wrap{position:relative}
 .select-wrap select{appearance:none;font:inherit;font-size:11px;background:#1b2019;border:1px solid #323c2c;border-radius:7px;padding:4px 22px 4px 8px;color:#dce4d3}
 .select-wrap svg{position:absolute;right:6px;top:6px;pointer-events:none;color:#9aa891}
-.voice-control{margin-top:6px;display:flex;align-items:center;gap:10px;padding:7px 9px;background:#181e15;border-radius:9px;border:1px solid #313c29}
+.voice-control-wrap{margin-top:6px;display:flex;flex-direction:column;gap:6px}
+.asr-mode-pills{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.asr-mode-pill{border:1px solid #2f382a;background:#161b14;color:#a9b69f;border-radius:7px;padding:4px 6px;font-size:11px;font-weight:600;transition:background .15s,border-color .15s,color .15s}
+.asr-mode-pill:hover:not(:disabled){border-color:#4b5a42;color:#e7eedf}
+.asr-mode-pill.active{border-color:#d7ef41;background:#242e18;color:#e9fb97}
+.asr-mode-pill:disabled{opacity:.55;cursor:not-allowed}
+.voice-control{display:flex;align-items:center;gap:10px;padding:7px 9px;background:#181e15;border-radius:9px;border:1px solid #313c29}
+.secondary-transcript{margin:-2px 0 6px;font-size:10.5px;color:#93a18b}
+.secondary-transcript summary{cursor:pointer;user-select:none}
+.secondary-transcript span{display:block;margin-top:4px;padding-left:9px;border-left:2px solid #2e3828;color:#bcc8b4}
 .mic-button{width:38px;height:38px;flex-shrink:0;border:0;border-radius:50%;background:#d7ef41;color:#141a06;box-shadow:0 0 0 3px #2a341d;display:grid;place-items:center}
 .mic-button.recording{background:#b83834;color:white;box-shadow:0 0 0 3px #4e2220}
 .voice-control strong{font-size:12.5px;display:block}
@@ -148,6 +157,38 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 .operation-list{display:flex;flex-wrap:wrap;gap:4px}
 .operation-list span{display:inline-flex;align-items:center;gap:4px;background:#232c1b;border:1px solid #39482a;color:#e3f3be;padding:3px 7px;border-radius:5px;font-size:10.5px}
 .muted{font-size:10.5px;color:#94a18b;margin:4px 0 0}
+
+/* Phase 8 Voice Director Review UX */
+.transcript-review{border-top:1px solid #252c22;margin-top:10px;padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.transcript-review__header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.transcript-review__header-actions{display:flex;align-items:center;gap:4px}
+.transcript-review__icon-btn,.transcript-review__dismiss{background:none;border:1px solid transparent;border-radius:6px;color:#99a890;width:24px;height:24px;display:grid;place-items:center}
+.transcript-review__icon-btn:hover:not(:disabled),.transcript-review__dismiss:hover:not(:disabled){border-color:#3a4632;color:#eef3e8;background:#192017}
+.transcript-review__quote{font-size:12px;line-height:1.45;color:#dbe4d3;margin:0;padding-left:9px;border-left:2px solid #404d38}
+.transcript-review__editor{font-size:12px;line-height:1.4}
+.transcript-review__engines{display:flex;flex-wrap:wrap;gap:4px}
+.engine-badge{font-size:10px;color:#9eb092;background:#171d15;border:1px solid #2a3326;border-radius:5px;padding:2px 6px}
+.operation-preview{display:flex;flex-direction:column;gap:5px}
+.operation-preview--empty,.operation-preview--edited{flex-direction:row;align-items:center;gap:6px;font-size:11.5px;color:#b2bfa8;background:#171c15;border:1px solid #2b3426;border-radius:7px;padding:7px 9px}
+.operation-preview__item{display:flex;align-items:center;gap:6px;background:#232c1b;border:1px solid #39482a;color:#e3f3be;padding:5px 8px;border-radius:6px;font-size:11.5px}
+.operation-preview__label{flex:1}
+.operation-preview__source{font-size:9.5px;color:#a5b889;background:#182012;border:1px solid #313f24;border-radius:4px;padding:1px 5px}
+.transcript-review__warnings{margin:0;padding-left:16px}
+.transcript-review__actions{display:flex;align-items:center;gap:6px;margin-top:2px}
+.transcript-review__cancel-btn,.transcript-review__edit-btn{border:1px solid #333b2e;border-radius:7px;padding:6px 10px;background:#1a1f18;color:#dce4d3;font-size:12px;font-weight:500}
+.transcript-review__cancel-btn:hover:not(:disabled),.transcript-review__edit-btn:hover:not(:disabled){border-color:#536249;background:#21281e}
+.transcript-review__apply-btn{margin-left:auto;display:inline-flex;align-items:center;gap:5px;background:#d7ef41;color:#141a06;border:0;border-radius:7px;padding:6px 12px;font-size:12px;font-weight:650}
+.transcript-review__apply-btn:hover:not(:disabled){background:#e2f65a}
+.clarification{background:#211d12;border:1px solid #4c401d;border-radius:8px;padding:9px 10px;display:flex;flex-direction:column;gap:8px}
+.clarification__question{display:flex;align-items:flex-start;gap:7px;color:#f3d88c;font-size:12px;line-height:1.4}
+.clarification__question p{margin:0}
+.clarification__actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.clarification__hint{font-size:11px;color:#a8b29c}
+.mic-settings{margin-top:8px;padding:8px 10px;border-radius:8px;background:#161b14;border:1px solid #2b3426;display:flex;flex-direction:column;gap:6px}
+.mic-settings__header{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:#c9d6b8}
+.mic-settings__perm{margin-left:auto;font-size:10px;color:#99a890;background:#1e251b;border:1px solid #2f392a;padding:1px 6px;border-radius:999px}
+.mic-settings__stub{margin:0}
+.spinner-xs{width:12px;height:12px;border:2px solid #141a06;border-top-color:transparent;border-radius:50%;display:inline-block;animation:spin .8s linear infinite}
 
 /* Tabs & Inspector Fields */
 .inspector-card{padding:0;overflow:hidden;flex:1;min-height:0;display:flex;flex-direction:column}

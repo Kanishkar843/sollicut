@@ -2,7 +2,11 @@
 
 Project code uses the MIT license. Dependencies retain their own licenses.
 
-- faster-whisper, Whisper and CTranslate2: MIT; upstream model and code notices apply.
+- faster-whisper, Systran/faster-whisper-small, Whisper and CTranslate2: MIT; upstream model and code notices apply.
+- sherpa-onnx (v2.0.3): Apache License 2.0 (Next-gen Kaldi / k2-fsa).
+- AI4Bharat IndicConformer Tamil & parismitaglobalsolutions/indicconformer-sherpa-onnx: MIT / Apache-2.0 upstream model and ONNX packaging notices apply.
+- RapidFuzz: MIT License.
+- Silero VAD (`silero_vad.onnx` v5): MIT License (https://github.com/snakers4/silero-vad).
 - FastAPI, React, Vite, Tailwind: MIT. Lucide: ISC. Pillow: HPND. Python: PSF. ReportLab: BSD.
 - OpenCV (`opencv-python-headless`): Apache 2.0.
 - ONNX Runtime: MIT. Optional U^2-Net ONNX model weights (when locally supplied by user): Apache 2.0 (`xuebinqin/U-2-Net`).

@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from backend.app import main, storage
-from backend.app.models import TranscriptResult
+from backend.app.models import DualTranscriptResult
 from scripts.generate_demo_assets import generate
 
 
@@ -62,14 +62,26 @@ def voice_client(tmp_path, monkeypatch):
 def test_multiturn_persistent_text_id_and_immediate_followup(voice_client, monkeypatch):
     wav = _tiny_wav_bytes()
     transcripts = iter([
-        TranscriptResult(text="Create text 'Sale 20%' on clip 1", language="en", elapsed_seconds=0.1),
-        TranscriptResult(text="Change text to 25%", language="en", elapsed_seconds=0.1),
+        DualTranscriptResult(
+            primary_text="Create text 'Sale 20%' on clip 1",
+            english_transcript="Create text 'Sale 20%' on clip 1",
+            mode="en",
+            engines_used=["faster-whisper"],
+            elapsed_seconds=0.1,
+        ),
+        DualTranscriptResult(
+            primary_text="Change text to 25%",
+            english_transcript="Change text to 25%",
+            mode="en",
+            engines_used=["faster-whisper"],
+            elapsed_seconds=0.1,
+        ),
     ])
 
-    async def fake_transcribe(path, language_hint=None):
+    async def fake_transcribe_pcm(samples, mode="tanglish"):
         return next(transcripts)
 
-    monkeypatch.setattr(main.speech, "transcribe", fake_transcribe)
+    monkeypatch.setattr(main.speech, "transcribe_pcm", fake_transcribe_pcm)
 
     pid = voice_client.post("/api/projects").json()["id"]
     root = f"/api/projects/{pid}"
@@ -107,22 +119,26 @@ def test_multiturn_persistent_text_id_and_immediate_followup(voice_client, monke
 def test_multiturn_canonical_tanglish_render_undo_redo(voice_client, monkeypatch):
     wav = _tiny_wav_bytes()
     transcripts = iter([
-        TranscriptResult(
-            text="Indha photos ellathayum use panni oru 5 seconds Instagram reel create pannu. Smooth zoom effects podu. Background music add pannu. Last la 20 percent offer nu text podu.",
-            language="ta",
+        DualTranscriptResult(
+            primary_text="Indha photos ellathayum use panni oru 5 seconds Instagram reel create pannu. Smooth zoom effects podu. Background music add pannu. Last la 20 percent offer nu text podu.",
+            english_transcript="Indha photos ellathayum use panni oru 5 seconds Instagram reel create pannu. Smooth zoom effects podu. Background music add pannu. Last la 20 percent offer nu text podu.",
+            mode="tanglish",
+            engines_used=["faster-whisper"],
             elapsed_seconds=0.12,
         ),
-        TranscriptResult(
-            text="Offer ah 25 percent nu maathu. Background music konjam kammi pannu.",
-            language="ta",
+        DualTranscriptResult(
+            primary_text="Offer ah 25 percent nu maathu. Background music konjam kammi pannu.",
+            english_transcript="Offer ah 25 percent nu maathu. Background music konjam kammi pannu.",
+            mode="tanglish",
+            engines_used=["faster-whisper"],
             elapsed_seconds=0.11,
         ),
     ])
 
-    async def fake_transcribe(path, language_hint=None):
+    async def fake_transcribe_pcm(samples, mode="tanglish"):
         return next(transcripts)
 
-    monkeypatch.setattr(main.speech, "transcribe", fake_transcribe)
+    monkeypatch.setattr(main.speech, "transcribe_pcm", fake_transcribe_pcm)
 
     pid = voice_client.post("/api/projects").json()["id"]
     root = f"/api/projects/{pid}"

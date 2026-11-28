@@ -98,13 +98,14 @@ export type Project = {
   redo_stack?: unknown[]
   settings: ReelSettings
 }
-
+export type AsrMode = 'tanglish' | 'ta' | 'en'
 export type Parsed = {
   original_transcript: string
   operations: Operation[]
   requires_clarification: boolean
   clarification_question: string | null
   warnings: string[]
+  matched_sources?: Record<string, string>
 }
 
 export type Command = {
@@ -113,12 +114,32 @@ export type Command = {
   project?: Project
   download_url?: string
   transcript?: string
+  secondary_transcript?: string | null
+  language_mode?: string
+  asr_mode?: AsrMode
+  engines_used?: string[]
+  asr_elapsed_ms?: number
+  requires_clarification?: boolean
+  preview?: boolean
+  /** V2 transport fields */
+  session_id?: string
+  command_id?: string
 }
 
 export type Capabilities = {
   generation?: { configured: boolean; status: string; label?: string; model: string }
   renderer: { available: boolean; raqm?: boolean; tamil_shaping?: string }
-  speech: { status: string; error: string | null }
+  speech: { engine?: string; status: string; error: string | null }
+  asr_engines?: { indicconformer_ta: boolean; faster_whisper_small: boolean }
+  supported_modes?: AsrMode[]
+  streaming_ws?: boolean
+  voice_profile?: {
+    profile: 'lightweight' | 'balanced' | 'accuracy'
+    asr_model: string
+    vad: 'silero' | 'rms'
+    resampler: 'linear' | 'fir_kaiser'
+    threads: number
+  }
   tts?: { available: boolean; backend: string; languages: string[] }
   cutout?: { backend: string; u2net_ready: boolean }
   limits?: { media_items?: number; image_mb?: number; video_mb?: number; video_seconds?: number }
@@ -132,6 +153,43 @@ export type AssetsCatalog = {
   transitions: { id: TransitionStyle; label: string; category: string }[]
   stickers: { id: StickerBadge; label: string }[]
   stock_video: { status: string; note: string; items: unknown[] }
+}
+
+export function buildVoiceWsUrl(projectId: string, mode: AsrMode, sessionId?: string, autoApply = true): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const sid = sessionId ?? crypto.randomUUID()
+  const applyParam = autoApply ? '' : '&auto_apply=false'
+  return `${proto}//${window.location.host}/ws/voice/${projectId}?mode=${encodeURIComponent(mode)}&session_id=${encodeURIComponent(sid)}${applyParam}`
+}
+
+export function encodeWav16k(chunks: Int16Array[], sampleRate = 16000): Blob {
+  const totalSamples = chunks.reduce((acc, c) => acc + c.length, 0)
+  const buffer = new ArrayBuffer(44 + totalSamples * 2)
+  const view = new DataView(buffer)
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i))
+  }
+  writeStr(0, 'RIFF')
+  view.setUint32(4, 36 + totalSamples * 2, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeStr(36, 'data')
+  view.setUint32(40, totalSamples * 2, true)
+  let offset = 44
+  for (const chunk of chunks) {
+    for (let i = 0; i < chunk.length; i++) {
+      view.setInt16(offset, chunk[i], true)
+      offset += 2
+    }
+  }
+  return new Blob([buffer], { type: 'audio/wav' })
 }
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {

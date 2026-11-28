@@ -1,11 +1,16 @@
 import asyncio
+import contextlib
+import json
 import logging
 import shutil
+import wave
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+import numpy as np
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -29,12 +34,14 @@ from .models import (
     VisualEditRequest,
     uid,
 )
-from .parser import parse
-from .speech import FasterWhisperSpeechEngine
+from .parser import parse, parse_dual_command
+from .speech import DualSpeechRouter, SAMPLE_RATE
 from .tts import OfflineTTSEngine
+from .understanding.context_manager import clear_context, get_context
+from .voice.audio_quality import assess as assess_audio_quality
 
 Image.MAX_IMAGE_PIXELS = 50_000_000
-speech = FasterWhisperSpeechEngine()
+speech = DualSpeechRouter()
 tts_engine = OfflineTTSEngine()
 jobs: dict[str, Job] = {}
 busy: set[str] = set()
@@ -122,10 +129,19 @@ def health():
 
 @app.get("/api/capabilities")
 def capabilities():
+    speech_caps = speech.capabilities()
     return {
         "generation": generation.status(),
         "renderer": media_status,
-        "speech": {"engine": "faster-whisper", "status": speech.status, "error": speech.error},
+        "speech": {
+            "engine": speech_caps["engine"],
+            "status": speech_caps["status"],
+            "error": speech_caps["error"],
+        },
+        "asr_engines": speech_caps["asr_engines"],
+        "supported_modes": speech_caps["supported_modes"],
+        "streaming_ws": speech_caps["streaming_ws"],
+        "voice_profile": speech_caps.get("voice_profile"),
         "tts": tts_engine.status(),
         "cutout": effects.cutout_capabilities(),
         "limits": {
@@ -158,6 +174,7 @@ async def delete_project(project_id: str):
         shutil.rmtree(storage.project_dir(project_id))
         for job_id in [k for k, v in jobs.items() if v.project_id == project_id]:
             del jobs[job_id]
+        clear_context(project_id)
         return {"deleted": True}
     finally:
         busy.discard(project_id)
@@ -680,6 +697,10 @@ def dispatch(project, parsed):
     quota(project.id, 50 * 1024 * 1024)
     # Validate operations synchronously before queueing so invalid clip indices/trims return 422 immediately.
     apply_operations(project, parsed.operations)
+    get_context(project.id).record(
+        parsed.original_transcript,
+        [op.model_dump() for op in parsed.operations],
+    )
     job = _enqueue_job(project, "Waiting for renderer")
     track(render_job(project, parsed, job))
     return {"parsed_command": parsed, "requires_clarification": False, "job_id": job.id}
@@ -694,9 +715,27 @@ async def apply(project_id: str, body: ApplyRequest):
     project = claim(project_id)
     result = None
     try:
-        parsed = parse(body.transcript, _media_count(project), bool(project.current_output), context=_parser_context(project))
+        if body.secondary_transcript:
+            from .models import DualTranscriptResult
+
+            mode = body.asr_mode or "tanglish"
+            dual = DualTranscriptResult(
+                primary_text=body.transcript,
+                tamil_transcript=body.secondary_transcript,
+                english_transcript=body.transcript,
+                mode=mode,
+                engines_used=[],
+                elapsed_seconds=0.0,
+            )
+            parsed = parse_dual_command(dual, project, context=_parser_context(project))
+        else:
+            parsed = parse(body.transcript, _media_count(project), bool(project.current_output), context=_parser_context(project))
         result = dispatch(project, parsed)
-        return result
+        return {
+            **result,
+            "transcript": body.transcript,
+            "secondary_transcript": body.secondary_transcript,
+        }
     finally:
         if not result or "job_id" not in result:
             busy.discard(project_id)
@@ -1082,13 +1121,236 @@ async def auto_captions(project_id: str, body: AutoCaptionRequest):
             busy.discard(project_id)
 
 
+MAX_WS_PCM_BYTES = 30 * SAMPLE_RATE * 2  # 30s at 16 kHz mono Int16 = 960,000 bytes
+
+
+def _resolve_asr_mode(mode: str | None, language_hint: str | None) -> str:
+    if mode in {"tanglish", "ta", "en"}:
+        return mode
+    if language_hint in {"ta", "en"}:
+        return language_hint
+    return "tanglish"
+
+
+def _read_wav_pcm_sync(wav_path: Path) -> np.ndarray | None:
+    """Fast-path 16 kHz mono 16-bit PCM WAV directly into float32; return None if transcode needed."""
+    try:
+        with wave.open(str(wav_path), "rb") as recording:
+            if recording.getnchannels() != 1 or recording.getsampwidth() != 2 or recording.getframerate() != SAMPLE_RATE:
+                return None
+            duration = recording.getnframes() / SAMPLE_RATE
+            if not 0.2 <= duration <= 30.5:
+                raise ValueError("Record between 0.2 and 30 seconds")
+            raw = recording.readframes(recording.getnframes())
+        return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    except wave.Error:
+        return None
+
+
+WS_SESSION_TIMEOUT_SECONDS = 37  # hard cap per session (30s record + 7s transcription)
+_ws_seen_commands: dict[str, set[str]] = {}  # session_id → set of seen command_ids
+
+
+@app.websocket("/ws/voice/{project_id}")
+async def voice_ws(
+    websocket: WebSocket,
+    project_id: str,
+    mode: str = "tanglish",
+    session_id: str | None = None,
+    auto_apply: bool = True,
+):
+    await websocket.accept()
+
+    # --- Validate mode ---
+    if mode not in {"tanglish", "ta", "en"}:
+        await websocket.send_json({"error": "Invalid mode. Use tanglish, ta, or en."})
+        await websocket.close(code=4002)
+        return
+
+    # --- Validate project exists ---
+    try:
+        storage.load(project_id)
+    except (ValueError, FileNotFoundError):
+        await websocket.send_json({"error": "Project not found"})
+        await websocket.close(code=4004)
+        return
+
+    # --- Session tracking ---
+    sid = session_id or str(uuid4())
+    seen_commands: set[str] = _ws_seen_commands.setdefault(sid, set())
+
+    pcm_buf = bytearray()
+    claimed = False
+    result = None
+    expected_seq = 0
+
+    async def _session():
+        nonlocal claimed, result, expected_seq
+        try:
+            while True:
+                message = await websocket.receive()
+                if message.get("type") == "websocket.disconnect":
+                    break
+
+                if "bytes" in message and message["bytes"] is not None:
+                    chunk = message["bytes"]
+                    if len(pcm_buf) + len(chunk) > MAX_WS_PCM_BYTES:
+                        pcm_buf.clear()
+                        await websocket.send_json({"error": "Recording exceeds the 30-second limit."})
+                        await websocket.close(code=1009)
+                        return
+                    pcm_buf.extend(chunk)
+                    expected_seq += 1
+
+                elif "text" in message and message["text"] is not None:
+                    # --- Parse control frame ---
+                    try:
+                        payload = json.loads(message["text"])
+                    except json.JSONDecodeError:
+                        # Structured error, don't disconnect — let client recover
+                        await websocket.send_json({"error": "Malformed control frame: expected JSON object."})
+                        continue
+                    if not isinstance(payload, dict):
+                        await websocket.send_json({"error": "Malformed control frame: expected JSON object."})
+                        continue
+
+                    event = payload.get("event")
+                    command_id = payload.get("command_id")
+
+                    # --- Idempotency: reject duplicate command_ids ---
+                    if command_id and event in {"stop", "cancel"}:
+                        if command_id in seen_commands:
+                            await websocket.send_json({
+                                "error": f"Duplicate command_id '{command_id}' — already processed.",
+                                "command_id": command_id,
+                            })
+                            await websocket.close(code=1000)
+                            return
+                        seen_commands.add(command_id)
+
+                    if event == "cancel":
+                        pcm_buf.clear()
+                        await websocket.close(code=1000)
+                        return
+
+                    if event == "stop":
+                        valid_len = len(pcm_buf) - (len(pcm_buf) % 2)
+                        samples = np.frombuffer(pcm_buf[:valid_len], dtype=np.int16).astype(np.float32) / 32768.0
+                        pcm_buf.clear()
+                        import logging
+                        pcm_rms = float(np.sqrt(np.mean(np.square(samples, dtype=np.float64)))) if samples.size else 0.0
+                        logging.getLogger("sollicut").info(
+                            "voice_ws stop: samples=%d (%.2fs) rms=%.5f mode=%s",
+                            samples.size,
+                            samples.size / SAMPLE_RATE,
+                            pcm_rms,
+                            mode,
+                        )
+
+                        try:
+                            project = claim(project_id)
+                            claimed = True
+                            dual_res = await speech.transcribe_pcm(samples, mode=mode)  # type: ignore[arg-type]
+                        except HTTPException as exc:
+                            await websocket.send_json({"error": exc.detail, "command_id": command_id})
+                            await websocket.close(code=1000)
+                            return
+                        except ValueError as exc:
+                            await websocket.send_json({"error": str(exc), "command_id": command_id})
+                            await websocket.close(code=1000)
+                            return
+                        except (RuntimeError, OSError):
+                            await websocket.send_json({
+                                "error": speech.error or "Transcription failed. Check the recording and try again.",
+                                "command_id": command_id,
+                            })
+                            await websocket.close(code=1000)
+                            return
+
+                        try:
+                            parsed = parse_dual_command(dual_res, project, context=_parser_context(project))
+                            quality = assess_audio_quality(samples)
+                            for w in quality.warnings:
+                                if w not in parsed.warnings:
+                                    parsed.warnings.append(w)
+                            preview_only = (not auto_apply) or bool(payload.get("preview"))
+                            if preview_only:
+                                result = {
+                                    "parsed_command": parsed,
+                                    "requires_clarification": parsed.requires_clarification,
+                                    "preview": True,
+                                }
+                            else:
+                                result = dispatch(project, parsed)
+                        except HTTPException as exc:
+                            await websocket.send_json({"error": exc.detail, "command_id": command_id})
+                            await websocket.close(code=1000)
+                            return
+
+                        secondary = (
+                            dual_res.tamil_transcript
+                            if mode == "tanglish" and dual_res.tamil_transcript and dual_res.tamil_transcript != dual_res.primary_text
+                            else None
+                        )
+                        response_payload = {
+                            **result,
+                            "transcript": dual_res.primary_text,
+                            "secondary_transcript": secondary,
+                            "language_mode": parsed.language_mode,
+                            "asr_mode": mode,
+                            "engines_used": dual_res.engines_used,
+                            "asr_elapsed_ms": int(round(dual_res.elapsed_seconds * 1000)),
+                            "session_id": sid,
+                            "command_id": command_id,
+                        }
+                        await websocket.send_json(jsonable_encoder(response_payload))
+                        await websocket.close(code=1000)
+                        return
+
+                    # Unknown event — send structured error, do not disconnect
+                    await websocket.send_json({"error": f"Unknown event '{event}'. Use stop or cancel."})
+
+        except WebSocketDisconnect:
+            pass
+        finally:
+            pcm_buf.clear()
+            if claimed and (not result or "job_id" not in result):
+                busy.discard(project_id)
+            # NOTE: intentionally keep _ws_seen_commands[sid] alive so the same
+            # session_id cannot replay a command_id across reconnects.
+            # Garbage-collect when the idempotency table grows too large.
+            if len(_ws_seen_commands) > 2000:
+                oldest = next(iter(_ws_seen_commands))
+                _ws_seen_commands.pop(oldest, None)
+
+    try:
+        await asyncio.wait_for(_session(), timeout=WS_SESSION_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        pcm_buf.clear()
+        with contextlib.suppress(Exception):
+            await websocket.send_json({"error": "Session timeout: recording exceeded the maximum allowed duration."})
+            await websocket.close(code=1001)
+        if claimed and (not result or "job_id" not in result):
+            busy.discard(project_id)
+        _ws_seen_commands.pop(sid, None)
+
+
 @app.post("/api/projects/{project_id}/voice-command")
-async def voice(project_id: str, file: UploadFile = File(...), language_hint: str | None = Form(None), mode: str = Form("edit")):
+async def voice(
+    project_id: str,
+    file: UploadFile = File(...),
+    language_hint: str | None = Form(None),
+    mode: str = Form("edit"),
+    asr_mode: str | None = Form(None),
+    auto_apply: bool = Form(True),
+):
     project = claim(project_id)
     result, path = None, None
     try:
-        if language_hint not in {None, "ta", "en"}:
-            raise HTTPException(422, "Language must be Tamil, English or automatic")
+        if language_hint not in {None, "", "ta", "en", "tanglish"}:
+            raise HTTPException(422, "Language must be Tamil, English, Tanglish or automatic")
+        resolved_asr_mode = _resolve_asr_mode(asr_mode or (mode if mode in {"tanglish", "ta", "en"} else None), language_hint)
+        action_mode = "generate" if mode == "generate" else "edit"
         suffix = Path(file.filename or "").suffix.lower()
         if suffix not in {".webm", ".ogg", ".mp4", ".m4a", ".wav"} or not (file.content_type or "").split(";")[0] in {
             "audio/webm", "video/webm", "audio/ogg", "audio/mp4", "video/mp4", "audio/wav", "audio/x-wav"
@@ -1098,27 +1360,51 @@ async def voice(project_id: str, file: UploadFile = File(...), language_hint: st
         path = storage.project_dir(project_id) / "audio" / f"{uuid4()}{suffix}"
         await receive(file, path, 20 * 1024 * 1024)
         try:
-            info = await asyncio.to_thread(media.probe, path)
-            if not any(s["codec_type"] == "audio" for s in info["streams"]):
-                raise ValueError("No audio stream")
-            # MediaRecorder WebM may omit duration. Decode to bounded PCM and measure it.
-            wav = path.with_suffix(".decoded.wav")
-            await asyncio.to_thread(media.run, ["ffmpeg", "-v", "error", "-y", "-i", str(path), "-vn", "-t", "31", "-ar", "16000", "-ac", "1", str(wav)], 35)
-            import wave
-            with wave.open(str(wav)) as recording:
-                duration = recording.getnframes() / recording.getframerate()
-            if not 0.2 <= duration <= 30.5:
-                raise ValueError("Record between 0.2 and 30 seconds")
-            transcript = await speech.transcribe(wav, language_hint)
+            samples = await asyncio.to_thread(_read_wav_pcm_sync, path) if suffix == ".wav" else None
+            if samples is None:
+                info = await asyncio.to_thread(media.probe, path)
+                if not any(s["codec_type"] == "audio" for s in info["streams"]):
+                    raise ValueError("No audio stream")
+                # MediaRecorder WebM may omit duration. Decode to bounded PCM and measure it.
+                wav = path.with_suffix(".decoded.wav")
+                await asyncio.to_thread(media.run, ["ffmpeg", "-v", "error", "-y", "-i", str(path), "-vn", "-t", "31", "-ar", "16000", "-ac", "1", str(wav)], 35)
+                samples = await asyncio.to_thread(_read_wav_pcm_sync, wav)
+                if samples is None:
+                    raise ValueError("Could not decode audio stream")
+            dual_res = await speech.transcribe_pcm(samples, mode=resolved_asr_mode)  # type: ignore[arg-type]
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
         except (RuntimeError, OSError):
             raise HTTPException(503, speech.error or "Transcription failed. Check the recording and try again.") from None
-        if mode == "generate":
-            return {"generation_prompt": transcript.text, "transcript": transcript.text, "requires_confirmation": True}
-        parsed = parse(transcript.text, _media_count(project), bool(project.current_output), context=_parser_context(project))
-        result = dispatch(project, parsed)
-        return {**result, "transcript": transcript.text, "language": transcript.language, "asr_seconds": transcript.elapsed_seconds}
+        if action_mode == "generate":
+            return {"generation_prompt": dual_res.primary_text, "transcript": dual_res.primary_text, "requires_confirmation": True}
+        parsed = parse_dual_command(dual_res, project, context=_parser_context(project))
+        quality = assess_audio_quality(samples)
+        for w in quality.warnings:
+            if w not in parsed.warnings:
+                parsed.warnings.append(w)
+        if not auto_apply:
+            result = {
+                "parsed_command": parsed,
+                "requires_clarification": parsed.requires_clarification,
+                "preview": True,
+            }
+        else:
+            result = dispatch(project, parsed)
+        secondary = (
+            dual_res.tamil_transcript
+            if resolved_asr_mode == "tanglish" and dual_res.tamil_transcript and dual_res.tamil_transcript != dual_res.primary_text
+            else None
+        )
+        return {
+            **result,
+            "transcript": dual_res.primary_text,
+            "secondary_transcript": secondary,
+            "language": parsed.language_mode,
+            "asr_mode": resolved_asr_mode,
+            "engines_used": dual_res.engines_used,
+            "asr_seconds": dual_res.elapsed_seconds,
+        }
     finally:
         if path:
             path.unlink(missing_ok=True)

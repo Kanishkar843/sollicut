@@ -175,6 +175,7 @@ class ParsedCommand(StrictModel):
     clarification_question: str | None = None
     warnings: list[str] = Field(default_factory=list)
     matched_rules: list[str] = Field(default_factory=list)
+    matched_sources: dict[str, str] = Field(default_factory=dict)
 
 
 class Snapshot(StrictModel):
@@ -199,6 +200,8 @@ class ProjectState(StrictModel):
 
 class ApplyRequest(StrictModel):
     transcript: str = Field(min_length=1, max_length=1000)
+    secondary_transcript: str | None = Field(default=None, max_length=1000)
+    asr_mode: Literal["tanglish", "ta", "en"] | None = None
 
 
 class GenerateRequest(StrictModel):
@@ -292,4 +295,13 @@ class Job(StrictModel):
 class TranscriptResult(StrictModel):
     text: str
     language: str
+    elapsed_seconds: float
+
+
+class DualTranscriptResult(StrictModel):
+    primary_text: str
+    tamil_transcript: str | None = None
+    english_transcript: str | None = None
+    mode: Literal["tanglish", "ta", "en"] = "tanglish"
+    engines_used: list[str] = Field(default_factory=list)
     elapsed_seconds: float

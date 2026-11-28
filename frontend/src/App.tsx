@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
   AudioLines,
   Check,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -37,10 +36,13 @@ import {
 import GeneratePanel from './GeneratePanel'
 import Timeline from './Timeline'
 import VoiceButton from './VoiceButton'
+import { TranscriptReview } from './components/voice/TranscriptReview'
+import { MicrophoneSettings } from './components/voice/MicrophoneSettings'
 import {
   api,
   operationLabel,
   type AspectRatio,
+  type AsrMode,
   type AssetsCatalog,
   type Capabilities,
   type Command,
@@ -116,13 +118,18 @@ export default function App() {
   const [stage, setStage] = useState('Ready')
   const [error, setError] = useState('')
   const [parsed, setParsed] = useState<Parsed | null>(null)
-  const [language, setLanguage] = useState('')
+  const [asrMode, setAsrMode] = useState<AsrMode>('tanglish')
   const [manualCommand, setManualCommand] = useState('')
   const [resetting, setResetting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<InspectorTab>('text')
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [showPrivacy, setShowPrivacy] = useState(false)
+  // Phase 8: pending voice command awaiting explicit user approval
+  const [pendingResult, setPendingResult] = useState<Command | null>(null)
+  const [applyingResult, setApplyingResult] = useState(false)
+  const [showMicSettings, setShowMicSettings] = useState(false)
+  const [micDeviceId, setMicDeviceId] = useState('')
 
   // Video preview transport state
   const [playing, setPlaying] = useState(false)
@@ -373,6 +380,7 @@ export default function App() {
   }
 
   function handleCommandResult(result: Command) {
+    setPendingResult(null)
     setParsed(result.parsed_command)
     if (result.parsed_command.requires_clarification) {
       setStage('A little more detail')
@@ -393,19 +401,96 @@ export default function App() {
     }
   }
 
+  function handleVoiceResult(result: Command) {
+    // Phase 8: Store result for user review; do NOT auto-apply operations.
+    setBusy(false)
+    setParsed(null)
+    if (result.parsed_command.requires_clarification) {
+      setStage('A little more detail')
+      setPendingResult(result)
+    } else {
+      setStage('Review and apply')
+      setPendingResult(result)
+    }
+  }
+
+  /**
+   * Phase 8 — Called when user clicks "Apply" / "Apply all" in TranscriptReview.
+   * Executes the previewed or edited transcript on the server.
+   */
+  async function applyPendingResult(result: Command, editedTranscript?: string) {
+    const pid = projectIdRef.current
+    if (!project || !pid) return
+    setApplyingResult(true)
+    setBusy(true)
+    setError('')
+    try {
+      let executed = result
+      if (editedTranscript || (!result.job_id && !result.project && !result.download_url)) {
+        setStage('Applying voice command')
+        const useDual = !editedTranscript && Boolean(result.secondary_transcript)
+        executed = await api<Command>(`/projects/${pid}/apply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            transcript: editedTranscript ?? result.parsed_command.original_transcript,
+            ...(useDual
+              ? {
+                  secondary_transcript: result.secondary_transcript,
+                  asr_mode: result.asr_mode ?? asrMode,
+                }
+              : {}),
+          }),
+        })
+      }
+
+      if (executed.parsed_command.requires_clarification) {
+        setPendingResult(executed)
+        setStage('A little more detail')
+        setBusy(false)
+        return
+      }
+
+      setPendingResult(null)
+      if (executed.job_id) {
+        setStage('Rendering reel')
+        setJobId(executed.job_id)
+      } else {
+        if (executed.project) setProject(executed.project)
+        if (executed.download_url) {
+          const a = document.createElement('a')
+          a.href = executed.download_url
+          a.download = 'SolliCut-reel.mp4'
+          a.click()
+        }
+        setStage(executed.download_url ? 'Ready to download' : 'Updated project')
+        setBusy(false)
+      }
+    } catch (e) {
+      setError((e as Error).message)
+      setStage('Review and apply')
+      setBusy(false)
+    } finally {
+      setApplyingResult(false)
+    }
+  }
+
   async function handleAudio(blob: Blob, extension: string) {
     const pid = projectIdRef.current
     if (!pid) return
     setBusy(true)
     setError('')
     setStage('Processing speech')
+    setPendingResult(null)
     setParsed(null)
     try {
       const form = new FormData()
       form.append('file', blob, `command.${extension}`)
-      if (language) form.append('language_hint', language)
+      form.append('asr_mode', asrMode)
+      form.append('auto_apply', 'false')
+      if (asrMode !== 'tanglish') form.append('language_hint', asrMode)
       const result = await api<Command>(`/projects/${pid}/voice-command`, { method: 'POST', body: form })
-      handleCommandResult(result)
+      handleVoiceResult(result)
     } catch (e) {
       setError((e as Error).message)
       setBusy(false)
@@ -484,6 +569,7 @@ export default function App() {
     try {
       setProject(await api<Project>(`/projects/${pid}/undo`, { method: 'POST' }))
       setParsed(null)
+      setPendingResult(null)
       setStage('Previous edit restored')
     } catch (e) {
       setError((e as Error).message)
@@ -500,6 +586,7 @@ export default function App() {
     try {
       setProject(await api<Project>(`/projects/${pid}/redo`, { method: 'POST' }))
       setParsed(null)
+      setPendingResult(null)
       setStage('Edit re-applied')
     } catch (e) {
       setError((e as Error).message)
@@ -518,6 +605,7 @@ export default function App() {
       setProject(p)
       localStorage.setItem('sollicut-project', p.id)
       setParsed(null)
+      setPendingResult(null)
       setSelectedClipId(null)
       setError('')
       setStage('Ready')
@@ -554,7 +642,7 @@ export default function App() {
       const res = await api<{ job_id?: string; project?: Project }>(`/projects/${pid}/auto-captions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language_hint: language || null, render: mediaAssets.length > 0 }),
+        body: JSON.stringify({ language_hint: asrMode === 'tanglish' ? null : asrMode, render: mediaAssets.length > 0 }),
       })
       if (res.job_id) setJobId(res.job_id)
       else if (res.project) {
@@ -1088,17 +1176,40 @@ export default function App() {
                     <span className="eyebrow">VOICE DIRECTOR</span>
                     <h2>{project?.current_output ? 'What would you change?' : 'What should we create?'}</h2>
                   </div>
-                  <div className="select-wrap">
-                    <select aria-label="Speech language" value={language} disabled={busy} onChange={(e) => setLanguage(e.target.value)}>
-                      <option value="">Auto language</option>
-                      <option value="ta">Tamil / Tanglish</option>
-                      <option value="en">English</option>
-                    </select>
-                    <ChevronDown size={14} />
-                  </div>
+                  <button
+                    type="button"
+                    className="transcript-review__icon-btn"
+                    aria-label="Microphone settings"
+                    aria-expanded={showMicSettings}
+                    onClick={() => setShowMicSettings((v) => !v)}
+                  >
+                    <Mic size={14} />
+                  </button>
                 </div>
 
-                <VoiceButton disabled={busy || mediaAssets.length < 1 || !speechReady} onAudio={(b, e) => void handleAudio(b, e)} onError={setError} />
+                <VoiceButton
+                  disabled={busy || mediaAssets.length < 1 || !speechReady}
+                  projectId={project?.id}
+                  mode={asrMode}
+                  previewOnly={true}
+                  resampler={caps?.voice_profile?.resampler ?? 'fir_kaiser'}
+                  deviceId={micDeviceId}
+                  onModeChange={setAsrMode}
+                  onProcessing={() => {
+                    setBusy(true)
+                    setError('')
+                    setStage('Processing speech')
+                    setPendingResult(null)
+                    setParsed(null)
+                  }}
+                  onStreamResult={handleVoiceResult}
+                  onAudio={(b, e) => void handleAudio(b, e)}
+                  onError={(msg) => {
+                    setError(msg)
+                    setBusy(false)
+                    setStage('Ready')
+                  }}
+                />
 
                 <form className="command-form" onSubmit={(e) => void applyTypedCommand(e)}>
                   <input
@@ -1115,6 +1226,10 @@ export default function App() {
                     <Send size={14} />
                   </button>
                 </form>
+
+                {showMicSettings && (
+                  <MicrophoneSettings deviceId={micDeviceId} onDeviceChange={setMicDeviceId} />
+                )}
 
                 <div className="status" role="status">
                   {busy ? <LoaderCircle className="spin" size={14} /> : <span className="status-dot" />}
@@ -1147,7 +1262,7 @@ export default function App() {
                   </div>
                 )}
 
-                {parsed && (
+                {parsed && !pendingResult && (
                   <div className="interpretation">
                     <span className="eyebrow">{parsed.requires_clarification ? 'LET’S CLARIFY' : 'I UNDERSTOOD'}</span>
                     <blockquote>{parsed.original_transcript}</blockquote>
@@ -1169,6 +1284,19 @@ export default function App() {
                       </p>
                     ))}
                   </div>
+                )}
+
+                {/* Phase 8: TranscriptReview — operations NOT applied until user clicks Apply */}
+                {pendingResult && (
+                  <TranscriptReview
+                    result={pendingResult}
+                    applying={applyingResult}
+                    onApply={(r, edited) => void applyPendingResult(r, edited)}
+                    onCancel={() => {
+                      setPendingResult(null)
+                      setStage('Ready')
+                    }}
+                  />
                 )}
               </div>
 
@@ -2067,7 +2195,7 @@ export default function App() {
                       project={project}
                       caps={caps}
                       busy={busy}
-                      languageHint={language}
+                      languageHint={asrMode === 'tanglish' ? '' : asrMode}
                       onJobStarted={(id, st) => {
                         setBusy(true)
                         setStage(st)
