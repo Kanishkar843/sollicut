@@ -65,7 +65,7 @@ export default function Landing() {
         </nav>
 
         <section className="landing-hero">
-          <div className="landing-hero-card">
+          <div className="landing-hero-panel landing-hero-left">
             <span className="eyebrow">A VOICE-FIRST CREATIVE STUDIO</span>
             <h1>
               Your business.
@@ -74,6 +74,9 @@ export default function Landing() {
               <br />
               <em>Your next big story.</em>
             </h1>
+          </div>
+
+          <div className="landing-hero-panel landing-hero-right">
             <p>
               Turn your photos, clips and ideas into promotional videos.
               <br />

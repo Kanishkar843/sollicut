@@ -34,19 +34,22 @@ button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,te
 .landing-bg{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;background:#0b0d0c}
 .landing-bg-poster{position:absolute;inset:0;background-size:cover;background-position:50% 50%;background-repeat:no-repeat}
 .landing-bg-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 50%;opacity:.72}
-.landing-bg-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,13,12,.74) 0%,rgba(11,13,12,.34) 36%,rgba(11,13,12,.44) 68%,rgba(11,13,12,.82) 100%)}
+.landing-bg-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(11,13,12,.70) 0%,rgba(11,13,12,.22) 40%,rgba(11,13,12,.38) 70%,rgba(11,13,12,.80) 100%)}
 .landing-content{position:relative;z-index:1}
 .landing-motion-toggle{position:fixed;right:16px;bottom:16px;z-index:15;display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;border:1px solid rgba(215,239,65,.32);background:rgba(15,19,16,.84);color:#e4ecd9;font-size:11.5px;font-weight:600;backdrop-filter:blur(10px);box-shadow:0 8px 24px -10px rgba(0,0,0,.75)}
 .landing-motion-toggle svg{color:#d7ef41}
 .landing-motion-toggle:hover:not(:disabled){border-color:#d7ef41;background:rgba(24,31,22,.94)}
 .landing nav{position:sticky;top:0;z-index:10;padding:18px 6%;display:flex;align-items:center;gap:32px;border-bottom:1px solid rgba(36,42,33,.88);background:rgba(13,16,14,.76);backdrop-filter:blur(14px)}
 .landing nav .brand{margin-right:auto}
-.landing-hero{text-align:center;padding:clamp(40px,7vh,76px) 20px 28px}
-.landing-hero-card{max-width:780px;margin:0 auto;padding:clamp(28px,4.5vw,44px) clamp(20px,4vw,40px);border-radius:22px;background:rgba(11,13,12,.58);border:1px solid rgba(215,239,65,.20);backdrop-filter:blur(10px);box-shadow:0 24px 64px -24px rgba(0,0,0,.72)}
-.landing-hero h1{font-size:clamp(40px,6vw,78px);line-height:1.06;letter-spacing:-2.8px;margin:18px 0}
+.landing-hero{max-width:1440px;margin:0 auto;min-height:clamp(470px,74vh,680px);padding:clamp(28px,5vh,56px) clamp(20px,4vw,56px) clamp(48px,7vh,76px);display:flex;justify-content:space-between;align-items:stretch;gap:clamp(24px,6vw,96px);text-align:left}
+.landing-hero-panel{padding:clamp(22px,2.6vw,32px) clamp(22px,2.8vw,34px);border-radius:20px;background:rgba(11,13,12,.58);border:1px solid rgba(215,239,65,.20);backdrop-filter:blur(12px);box-shadow:0 24px 64px -24px rgba(0,0,0,.72)}
+.landing-hero-left{align-self:flex-start;width:min(100%,460px);border-left:3px solid #d7ef41}
+.landing-hero-right{align-self:flex-end;width:min(100%,400px);margin-bottom:14px;border-right:3px solid #d7ef41;display:flex;flex-direction:column;align-items:flex-start}
+.landing-hero h1{font-size:clamp(34px,3.7vw,54px);line-height:1.07;letter-spacing:-1.8px;margin:14px 0 0}
 .landing-hero h1 em{font-style:normal;color:#d7ef41;font-weight:650}
-.landing-hero p{font-size:18px;line-height:1.7;color:#c3ccb9;margin:22px auto;max-width:680px}
-.hero-note{display:block;font-size:13px;color:#9fab94;margin-top:14px}
+.landing-hero p{font-size:16.5px;line-height:1.65;color:#ccd5c3;margin:0 0 20px;max-width:none}
+.landing-hero .lime-button{padding:11px 20px;font-size:14px}
+.hero-note{display:block;font-size:12.5px;color:#a7b49c;margin-top:12px}
 .landing-lookbook-wrap{background:linear-gradient(180deg,transparent,rgba(11,13,12,.38) 18%,rgba(11,13,12,.48) 82%,transparent)}
 .landing-lookbook-wrap .ffl-hint{background:rgba(13,16,14,.68);border:1px solid rgba(215,239,65,.24);backdrop-filter:blur(8px)}
 .landing-features{max-width:1200px;margin:0 auto;padding:48px 32px 72px;display:grid;grid-template-columns:repeat(3,1fr);gap:36px}
@@ -332,6 +335,8 @@ footer{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:
 .danger{background:#a13a35;color:white;border:0;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600}
 
 @media(max-width:960px){
+  .landing-hero{min-height:auto;flex-direction:column;gap:20px;padding:28px 24px 36px}
+  .landing-hero-right{margin-bottom:0}
   .studio-shell{height:auto;min-height:100vh;overflow:visible}
   .studio-main,.studio-workspace,.media-library,.stage-column,.preview-stage,.inspector-column,.inspector-card{overflow:visible}
   .studio-workspace{grid-template-columns:1fr 1fr}
@@ -344,11 +349,13 @@ footer{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:
   .landing nav>a:nth-child(2){display:none}
   .landing-bg-video{object-position:50% 46%}
   .landing-bg-poster{background-position:50% 46%}
-  .landing-hero{padding-top:34px}
-  .landing-hero-card{padding:24px 18px;border-radius:18px}
+  .landing-hero{padding:24px 16px 28px;gap:16px}
+  .landing-hero-panel{width:100%;padding:22px 18px;border-radius:16px;margin-bottom:0}
+  .landing-hero-right{align-self:stretch}
+  .landing-hero h1{font-size:clamp(32px,9vw,44px);letter-spacing:-1.4px}
   .landing-motion-toggle{right:12px;bottom:12px;padding:6px 10px;font-size:11px}
   .landing-features{grid-template-columns:1fr;gap:20px;padding:32px 20px 64px}
-  .landing-hero p{font-size:16px}
+  .landing-hero p{font-size:15.5px}
   .landing footer{flex-direction:column;text-align:center}
 
   .studio-topbar{padding:0 12px}
@@ -401,7 +408,9 @@ footer{display:flex;justify-content:space-between;gap:12px;font-size:10px;color:
 :root[data-theme="light"] .landing nav{background:rgba(255,255,255,.84);border-bottom-color:#dbe5f5;backdrop-filter:blur(14px)}
 :root[data-theme="light"] .landing nav>a:not(.brand):not(.lime-button){color:#334155}
 :root[data-theme="light"] .landing nav>a:not(.brand):not(.lime-button):hover{color:#1d4ed8}
-:root[data-theme="light"] .landing-hero-card{background:rgba(255,255,255,.84);border-color:rgba(37,99,235,.22);box-shadow:0 22px 54px -26px rgba(30,58,138,.24)}
+:root[data-theme="light"] .landing-hero-panel{background:rgba(255,255,255,.84);border-color:rgba(37,99,235,.22);box-shadow:0 22px 54px -26px rgba(30,58,138,.24)}
+:root[data-theme="light"] .landing-hero-left{border-left-color:#2563eb}
+:root[data-theme="light"] .landing-hero-right{border-right-color:#2563eb}
 :root[data-theme="light"] .landing-hero h1 em{color:#2563eb}
 :root[data-theme="light"] .landing-hero p{color:#334155}
 :root[data-theme="light"] .hero-note{color:#475569}
