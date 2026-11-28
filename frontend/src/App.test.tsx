@@ -2,6 +2,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import App, { validateMedia } from './App'
 import Landing from './Landing'
+import Router from './Router'
 import VoiceButton, { microphoneError } from './VoiceButton'
 import { TranscriptReview } from './components/voice/TranscriptReview'
 import { MicrophoneSettings } from './components/voice/MicrophoneSettings'
@@ -10,9 +11,16 @@ import pcmProcessorCode from '../public/pcm-processor.js?raw'
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   localStorage.clear()
   delete document.documentElement.dataset.theme
+  window.location.hash = ''
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: () => ({ matches: false, media: '', onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false }),
+  })
 })
 
 test('photo and video formats, sizes and count are checked before uploading', () => {
@@ -1055,4 +1063,125 @@ test('Studio switches between dark and white-blue themes and persists choice', a
   expect(document.documentElement.dataset.theme).toBe('dark')
   expect(localStorage.getItem('sollicut-theme')).toBe('dark')
   expect(screen.getByRole('button', { name: 'Switch to light theme' })).toBeInTheDocument()
+})
+
+test('Landing renders silent looping background video with pause/play control and visibility cleanup', async () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+  const playSpy = vi.spyOn(HTMLMediaElement.prototype, 'play').mockRejectedValue(new DOMException('Autoplay blocked', 'NotAllowedError'))
+  const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+  const { container } = render(<Landing />)
+  const bgVideo = container.querySelector('video.landing-bg-video') as HTMLVideoElement | null
+  expect(bgVideo).not.toBeNull()
+  expect(bgVideo).toHaveAttribute('src', '/videos/sollicut-background-loop.mp4')
+  expect(bgVideo).toHaveAttribute('poster', '/videos/sollicut-background-poster.jpg')
+  expect(bgVideo).toHaveAttribute('aria-hidden', 'true')
+  expect(bgVideo!.muted).toBe(true)
+  expect(bgVideo!.loop).toBe(true)
+  expect(bgVideo!.playsInline).toBe(true)
+  expect(playSpy).toHaveBeenCalled()
+
+  // Unhandled autoplay rejection must produce zero console errors and fall back cleanly to Play bg state
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Play background video' })).toBeInTheDocument())
+  expect(errSpy).not.toHaveBeenCalled()
+
+  playSpy.mockResolvedValueOnce(undefined)
+  fireEvent.click(screen.getByRole('button', { name: 'Play background video' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Pause background video' })).toBeInTheDocument())
+
+  // Document hidden pauses background playback; returning visible resumes only if user hasn't paused
+  Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+  fireEvent(document, new Event('visibilitychange'))
+  expect(pauseSpy).toHaveBeenCalled()
+
+  playSpy.mockResolvedValueOnce(undefined)
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+  fireEvent(document, new Event('visibilitychange'))
+  expect(playSpy.mock.calls.length).toBeGreaterThanOrEqual(2)
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Pause background video' })).toBeInTheDocument())
+
+  // Manual user pause prevents automatic resume on visibilitychange
+  fireEvent.click(screen.getByRole('button', { name: 'Pause background video' }))
+  const callsWhenPaused = playSpy.mock.calls.length
+  Object.defineProperty(document, 'hidden', { configurable: true, value: true })
+  fireEvent(document, new Event('visibilitychange'))
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false })
+  fireEvent(document, new Event('visibilitychange'))
+  expect(playSpy.mock.calls.length).toBe(callsWhenPaused)
+})
+
+test('Landing respects prefers-reduced-motion and falls back cleanly on video load error', () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: () => ({ matches: true, addEventListener: () => {}, removeEventListener: () => {} }),
+  })
+
+  const { container, unmount } = render(<Landing />)
+  expect(container.querySelector('video.landing-bg-video')).toBeNull()
+  expect(container.querySelector('.landing-bg-poster')).not.toBeNull()
+  expect(screen.queryByRole('button', { name: /background video/i })).not.toBeInTheDocument()
+  unmount()
+
+  // Restore normal motion, verify error fallback removes broken <video> while keeping static poster
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }),
+  })
+  const view2 = render(<Landing />)
+  const vid = view2.container.querySelector('video.landing-bg-video') as HTMLVideoElement
+  expect(vid).not.toBeNull()
+  fireEvent.error(vid)
+  expect(view2.container.querySelector('video.landing-bg-video')).toBeNull()
+  expect(view2.container.querySelector('.landing-bg-poster')).not.toBeNull()
+})
+
+test('Studio route never mounts landing background video and cleans up on navigation', async () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+  vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
+  const pauseSpy = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+  mockServer()
+
+  // Direct #studio visit must not mount landing background video
+  window.location.hash = '#studio'
+  const direct = render(<Router />)
+  await screen.findByText('Drop photos or video clips here')
+  expect(direct.container.querySelector('video.landing-bg-video')).toBeNull()
+  expect(direct.container.querySelector('.landing-bg')).toBeNull()
+  direct.unmount()
+
+  // Landing -> Studio -> Landing mounts, unmounts/pauses cleanly, and restores
+  window.location.hash = ''
+  const nav = render(<Router />)
+  const v1 = nav.container.querySelector('video.landing-bg-video')
+  expect(v1).not.toBeNull()
+
+  window.location.hash = '#studio'
+  fireEvent(window, new HashChangeEvent('hashchange'))
+  await screen.findByText('Drop photos or video clips here')
+  expect(pauseSpy).toHaveBeenCalled()
+  expect(nav.container.querySelector('video.landing-bg-video')).toBeNull()
+
+  window.location.hash = ''
+  fireEvent(window, new HashChangeEvent('hashchange'))
+  expect(nav.container.querySelector('video.landing-bg-video')).not.toBeNull()
 })
