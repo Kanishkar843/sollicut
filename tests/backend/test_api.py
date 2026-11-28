@@ -152,3 +152,34 @@ def test_video_upload_visual_edit_and_undo(client, tmp_path):
     assert rev["assets"][1]["trim_start"] == 0.0
     assert rev["assets"][1]["trim_end"] is None
     assert rev["settings"]["overlay_text"] is None
+
+
+def test_duration_follows_uploaded_media_without_15s_or_30s_limit(client, tmp_path):
+    from backend.app import media
+    clip_path = tmp_path / "long_clip.mp4"
+    media.run([
+        "ffmpeg", "-v", "error", "-y",
+        "-f", "lavfi", "-i", "color=c=#1c241e:s=360x640:d=36",
+        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", str(clip_path),
+    ])
+    pid = client.post("/api/projects").json()["id"]
+    root = f"/api/projects/{pid}"
+
+    # 1 photo => 5s (not fixed at 15s)
+    res1 = client.post(root + "/assets", files={"file": ("one.png", photo(), "image/png")})
+    assert res1.status_code == 200
+    assert res1.json()["settings"]["duration_seconds"] == 5.0
+
+    # Adding a 36s video => 41s (no 30s ceiling)
+    res2 = client.post(root + "/assets", files={"file": ("long.mp4", clip_path.read_bytes(), "video/mp4")})
+    assert res2.status_code == 200
+    assert res2.json()["settings"]["duration_seconds"] >= 40.5
+
+    # Explicit >30s duration works via edit and voice command apply within supported range
+    edit = client.post(root + "/edit", json={"duration_seconds": 45, "render": False})
+    assert edit.status_code == 200
+    assert edit.json()["project"]["settings"]["duration_seconds"] == 45.0
+
+    applied = client.post(root + "/apply", json={"transcript": "Create a 25 seconds reel"})
+    assert applied.status_code == 200
+    assert applied.json()["parsed_command"]["operations"][0]["parameters"]["duration_seconds"] == 25.0

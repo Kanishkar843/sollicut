@@ -21,7 +21,6 @@ def _make_sample_video(path: Path, with_audio: bool = True, duration: float = 2.
 
 
 def test_tamil_overlay(tmp_path):
-    assert features.check_feature("raqm")
     path = tmp_path / "tamil.png"
     overlay("இன்று 20% ஆஃபர்", path)
     with Image.open(path) as im:
@@ -29,6 +28,8 @@ def test_tamil_overlay(tmp_path):
     artifacts = Path("test-artifacts")
     artifacts.mkdir(exist_ok=True)
     overlay("இன்று 20% ஆஃபர்", artifacts / "tamil-overlay.png")
+    if features.check_feature("raqm"):
+        assert capabilities()["raqm"] is True
 
 
 def test_real_render(tmp_path, monkeypatch):

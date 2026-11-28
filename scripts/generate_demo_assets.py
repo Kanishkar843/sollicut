@@ -44,6 +44,48 @@ def generate(destination: Path = ROOT / "assets/demo"):
             frames.extend(struct.pack("<h", int(value*envelope*10000)))
         audio.writeframes(frames)
 
+    def _write_wav(filename: str, dur: float, sample_fn):
+        with wave.open(str(destination / filename), "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(rate)
+            buf = bytearray()
+            total_samples = int(rate * dur)
+            for idx in range(total_samples):
+                val = max(-0.98, min(0.98, sample_fn(idx / rate)))
+                buf.extend(struct.pack("<h", int(val * 12000)))
+            wav.writeframes(buf)
+
+    _write_wav(
+        "upbeat-pulse.wav",
+        8.0,
+        lambda t: (
+            (0.6 * math.sin(2 * math.pi * (440 if int(t * 2) % 2 == 0 else 523.25) * t)
+             + 0.4 * math.sin(2 * math.pi * 130.81 * t))
+            * max(0.15, 1.0 - (t % 0.5) * 1.6)
+        ),
+    )
+    _write_wav(
+        "ambient-pad.wav",
+        8.0,
+        lambda t: (
+            sum(math.sin(2 * math.pi * f * t) for f in (196.0, 293.66, 392.0, 493.88)) / 4.0
+            * (0.6 + 0.4 * math.sin(2 * math.pi * 0.25 * t))
+        ),
+    )
+    _write_wav(
+        "sfx-whoosh.wav",
+        1.2,
+        lambda t: math.sin(2 * math.pi * (160 + 600 * (t / 1.2)) * t) * math.sin(math.pi * min(1.0, t / 1.2)),
+    )
+    _write_wav(
+        "sfx-chime.wav",
+        1.5,
+        lambda t: (
+            0.5 * math.sin(2 * math.pi * 880.0 * t) + 0.5 * math.sin(2 * math.pi * 1318.51 * t)
+        ) * math.exp(-2.4 * t),
+    )
+
 
 def generate_lookbook(destination: Path = ROOT / "frontend/public/lookbook"):
     destination.mkdir(parents=True, exist_ok=True)

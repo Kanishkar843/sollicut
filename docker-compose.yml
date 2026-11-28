@@ -3,13 +3,20 @@ services:
     build:
       context: .
       args:
-        SOLLICUT_ASR_MODEL: ${SOLLICUT_ASR_MODEL:-base}
+        SOLLICUT_PROFILE: ${SOLLICUT_PROFILE:-balanced}
+        SOLLICUT_ASR_MODEL: ${SOLLICUT_ASR_MODEL:-small}
+        SOLLICUT_INDIC_ASR_ENABLED: ${SOLLICUT_INDIC_ASR_ENABLED:-true}
     ports:
       - "127.0.0.1:${SOLLICUT_PORT:-8080}:8080"
     volumes:
       - sollicut_data:/data
     environment:
       SOLLICUT_DATA_DIR: /data
+      SOLLICUT_PROFILE: ${SOLLICUT_PROFILE:-balanced}
+      SOLLICUT_ASR_MODEL: ${SOLLICUT_ASR_MODEL:-}
+      SOLLICUT_INDIC_ASR_ENABLED: ${SOLLICUT_INDIC_ASR_ENABLED:-true}
+      SOLLICUT_INDIC_MODEL_DIR: /models/indicconformer-ta
+      SOLLICUT_ASR_THREADS: ${SOLLICUT_ASR_THREADS:-}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       SOLLICUT_VIDEO_MODEL: ${SOLLICUT_VIDEO_MODEL:-gemini-omni-1.2-flash}
     init: true

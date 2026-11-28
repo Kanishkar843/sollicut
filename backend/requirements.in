@@ -1,10 +1,16 @@
 fastapi
-uvicorn
+uvicorn[standard]
+websockets
 python-multipart
 pydantic
 Pillow
+numpy
 faster-whisper
+sherpa-onnx
+rapidfuzz
 httpx
 pytest
 reportlab
 pypdf
+opencv-python-headless
+pyttsx3

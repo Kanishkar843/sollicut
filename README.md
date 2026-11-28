@@ -1,7 +1,10 @@
 # SolliCut
-Speak it. Cut it. Sell it.
 
-Voice-first promotional reel studio for Tamil/Tanglish/English small businesses — retailers, boutiques, florists, beauty professionals, home kitchens, bakeries and other local sellers.
+**Speak it. Cut it. Sell it.** — A voice-first promotional reel studio for small businesses supporting **Tamil, Tanglish, and English**.
+
+## Quick Start with Docker
+
+Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (with Docker Compose).
 
 ```sh
 git clone https://github.com/Kanishkar843/sollicut.git
@@ -9,49 +12,44 @@ cd sollicut
 docker compose up --build
 ```
 
-Open http://localhost:8080 for the campaign lookbook landing page, then open **Open studio** (`http://localhost:8080/#studio`). No `.env` or API key is needed for core editing. The first build downloads dependencies and public Whisper base weights; allow several minutes and sufficient disk space. Model acquisition failure leaves the UI usable with an explicit speech-unavailable notice. Rebuild with network access to enable speech.
+Open **http://localhost:8080** in your browser:
+- **Landing page:** `http://localhost:8080/`
+- **Studio:** `http://localhost:8080/#studio`
 
-Upload 1–5 photos or video clips (`Your media`), press the microphone, speak, and press again to finish:
+No `.env` file or API key is required for core editing, media upload, voice commands, timeline editing, or MP4 export.
 
-> Indha photos ellathayum use panni oru 15 seconds Instagram reel create pannu. Smooth zoom effects podu. Background music add pannu. Last la 20 percent offer nu text podu.
+> **Optional Cloud AI Ad Generation:** Create a `.env` file at the project root with `GEMINI_API_KEY=your_key` before running `docker compose up --build`.
 
-Then say: “Offer ah 25 percent nu maathu. Background music konjam kammi pannu.” Use the studio preview transport, 3-track timeline, and inspector tabs (`Text`, `Audio`, `Look`, `Trim`, `AI Ad`), or undo and download your 9:16 MP4.
+## Features
 
-## Implemented
+- **Landing & Studio Themes:** Campaign lookbook landing page with looping video background and Dark (lime) + Light (white & blue) theme switcher across Landing and Studio.
+- **Voice Director:** Speak in Tamil, Tanglish, or English (via local speech models or browser voice recognition) or type commands directly.
+- **Multi-Clip Timeline & Inspector:** Upload photos and videos (MP4/MOV/WebM), auto-size duration to your media, trim/split/reorder clips, add text overlays, captions, stickers, transitions, filters, keyframes, voiceover narration, inbuilt soothing music, or your own audio.
+- **MP4 Export:** Renders 9:16, 16:9, 1:1, and 4:5 MP4 reels with undo/redo history.
 
-- **Landing & Dark Studio UX**: Frosted Folder Lookbook landing page (`/`), electric-lime dark 3-column workstation (`#studio`: `Your media` bin, centered 9:16 cinema `<video>` stage with scrub/fullscreen transport, `Voice Director` + `Text`/`Audio`/`Look`/`Trim`/`AI Ad` inspector) and above-the-fold 3-track timeline with clip thumbnails and quick mute/add controls.
-- **Voice & Local ASR**: Real browser `MediaRecorder` capture, local `faster-whisper` (`base`, CPU `int8`), deterministic Tamil/Tanglish/English multi-operation parser (no `max(3, ...)` count workaround; supports 1–5 media items, clip trim, clip reorder, clip audio mixing, fit mode, zoom, brightness, music, and overlays).
-- **Rendering & Undo**: Validated photo (JPEG/PNG/WebP), video (MP4/MOV/WebM), and music (WAV/MP3/M4A/OGG) uploads; FFmpeg 720×1280 H.264/AAC rendering; Pillow + `libraqm` Tamil shaping (`Noto Sans Tamil`); non-destructive revision snapshots, undo (including clip order/trim), download, and project deletion.
-- **Optional Gemini Cloud Ad Panel**: Prepared against `gemini-omni-1.2-flash` (`POST /v1beta/interactions`) using bounded background jobs, `9:16` / `3–15s` schema, and prompt review before sending. Clearly displays **Key not set** without `GEMINI_API_KEY`; core editing remains keyless.
+## Local Development (Without Docker)
 
-See [architecture](docs/ARCHITECTURE.md) and [video generation notes](docs/VIDEO_GENERATION.md).
+```sh
+# 1. Build frontend
+cd frontend
+npm ci
+npm run build
+cd ..
+
+# 2. Install backend dependencies (requires Python 3.11+ and FFmpeg in PATH)
+pip install -r backend/requirements.lock
+python scripts/generate_demo_assets.py
+
+# 3. Start server
+python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8080
+```
 
 ## Verification
 
 ```sh
+# Frontend tests & build
+cd frontend && npm test && npm run build
+
+# Backend tests (or inside Docker)
 docker compose exec -T sollicut python -m pytest tests/backend -q
-sh scripts/smoke_test.sh
-cd frontend && npm ci && npm test && npm run build
 ```
-
-See [test results](docs/TEST_RESULTS.md), [manual voice benchmark](docs/ASR_BENCHMARK.md), and `scripts/fresh_clone_test.sh`. Tested on Docker/Linux Python 3.11.18, Node 22.23.5, FFmpeg 5.1.9. Native Windows Pillow lacked `libraqm`; use Docker for the supported rendering environment.
-
-This development host required its trusted corporate CA bundle for initial package downloads. An optional BuildKit secret `corporate_ca` is supported; ordinary networks need no certificate configuration. TLS verification is never disabled.
-
-## Configuration and privacy
-
-- **Default ASR**: `base`, CPU, `int8`. Set `SOLLICUT_ASR_MODEL=small` before rebuilding to evaluate `small`; no accuracy improvement is claimed.
-- **Optional Gemini API**: Set `GEMINI_API_KEY` in an untracked root `.env` to enable the `AI Ad` tab (`SOLLICUT_VIDEO_MODEL` defaults to `gemini-omni-1.2-flash`). Never commit `.env` or put keys in frontend code.
-- **Storage & Privacy**: Docker storage uses the `sollicut_data` named volume at `/data`. Recordings are deleted immediately after transcription; uploaded media, edit transcripts, and renders stay on the server until **New reel** deletes the project. See [privacy and limits](docs/PRIVACY.md). Remote hosting requires HTTPS for microphone capture and separate authentication hardening.
-
-Deferred: frame-accurate multi-layer compositing, user accounts, payments, cloud storage, additional Indian languages, and live Gemini key verification.
-
-## Submission package
-
-- [Pitch PDF](pitch/SolliCut_Pitch.pdf), with selectable text and generator
-- [2:45 demo script](docs/DEMO_SCRIPT.md)
-- [Submission checklist](docs/SUBMISSION_CHECKLIST.md)
-- [AI assistance disclosure](docs/AI_ASSISTANCE.md)
-- [Dependency licenses](THIRD_PARTY_NOTICES.md)
-
-Deadline supplied by participant: **30 November 2026, 11:59 pm IST; verify year/time zone and cutoff against the authenticated Round 2 dashboard.** The public page currently differs. Real human microphone/Tanglish acceptance, independent-person clone, YouTube publication, and final submission remain participant tasks.
