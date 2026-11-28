@@ -1,5 +1,6 @@
-import { AudioLines, Film, Mic, Sparkles } from 'lucide-react'
+import { AudioLines, Film, Mic, Moon, Sparkles, Sun } from 'lucide-react'
 import { FrostedFolderLookbook } from './components/ui/frosted-folder-lookbook'
+import { useTheme } from './theme'
 
 const sheets = [
   {
@@ -33,6 +34,8 @@ const sheets = [
 ]
 
 export default function Landing() {
+  const { theme, toggleTheme } = useTheme()
+
   return (
     <div className="landing">
       <nav aria-label="Primary navigation">
@@ -43,6 +46,15 @@ export default function Landing() {
           SolliCut
         </a>
         <a href="#how">How it works</a>
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={toggleTheme}
+          aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          title={theme === 'dark' ? 'Switch to white & blue theme' : 'Switch to dark theme'}
+        >
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
         <a className="lime-button" href="#studio">
           Open studio
         </a>
@@ -76,8 +88,8 @@ export default function Landing() {
         footer="Ideas worth sharing"
         wordmark="SolliCut"
         sheets={sheets}
-        tint="#d7ef41"
-        background="#0b0d0c"
+        tint={theme === 'light' ? '#2563eb' : '#d7ef41'}
+        background={theme === 'light' ? '#f4f7fc' : '#0b0d0c'}
         height="min(640px, 78svh)"
         openLabel="Open your possibilities"
         closeLabel="Close collection"

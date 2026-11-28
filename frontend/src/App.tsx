@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   Maximize2,
   Mic,
+  Moon,
   Music2,
   Package,
   Pause,
@@ -25,6 +26,7 @@ import {
   SkipForward,
   SlidersHorizontal,
   Sparkles,
+  Sun,
   Trash2,
   Type,
   Undo2,
@@ -38,6 +40,7 @@ import Timeline from './Timeline'
 import VoiceButton from './VoiceButton'
 import { TranscriptReview } from './components/voice/TranscriptReview'
 import { MicrophoneSettings } from './components/voice/MicrophoneSettings'
+import { useTheme } from './theme'
 import {
   api,
   operationLabel,
@@ -111,6 +114,7 @@ function formatTime(sec: number): string {
 }
 
 export default function App() {
+  const { theme, toggleTheme } = useTheme()
   const [project, setProject] = useState<Project | null>(null)
   const [caps, setCaps] = useState<Capabilities | null>(null)
   const [catalog, setCatalog] = useState<AssetsCatalog | null>(null)
@@ -884,6 +888,15 @@ export default function App() {
         </div>
 
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Switch to white & blue theme' : 'Switch to dark theme'}
+          >
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
+          </button>
           <button type="button" className="quiet" disabled={busy || !project?.undo_stack.length} onClick={() => void undo()}>
             <Undo2 size={15} />
             Undo

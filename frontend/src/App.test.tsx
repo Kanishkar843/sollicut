@@ -12,6 +12,7 @@ afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   localStorage.clear()
+  delete document.documentElement.dataset.theme
 })
 
 test('photo and video formats, sizes and count are checked before uploading', () => {
@@ -1022,4 +1023,36 @@ test('pcm-processor.js preserves audio amplitude and exact sample count at 44100
   delete (globalThis as Record<string, unknown>).sampleRate
   delete (globalThis as Record<string, unknown>).AudioWorkletProcessor
   delete (globalThis as Record<string, unknown>).registerProcessor
+})
+
+test('Landing page switches cleanly between dark and white-blue themes', () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+  render(<Landing />)
+  const toggleBtn = screen.getByRole('button', { name: 'Switch to light theme' })
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  fireEvent.click(toggleBtn)
+  expect(document.documentElement.dataset.theme).toBe('light')
+  expect(localStorage.getItem('sollicut-theme')).toBe('light')
+  const backBtn = screen.getByRole('button', { name: 'Switch to dark theme' })
+  fireEvent.click(backBtn)
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  expect(localStorage.getItem('sollicut-theme')).toBe('dark')
+})
+
+test('Studio switches between dark and white-blue themes and persists choice', async () => {
+  localStorage.setItem('sollicut-theme', 'light')
+  mockServer()
+  render(<App />)
+  const toggleBtn = await screen.findByRole('button', { name: 'Switch to dark theme' })
+  expect(document.documentElement.dataset.theme).toBe('light')
+  fireEvent.click(toggleBtn)
+  expect(document.documentElement.dataset.theme).toBe('dark')
+  expect(localStorage.getItem('sollicut-theme')).toBe('dark')
+  expect(screen.getByRole('button', { name: 'Switch to light theme' })).toBeInTheDocument()
 })
