@@ -1185,3 +1185,169 @@ test('Studio route never mounts landing background video and cleans up on naviga
   fireEvent(window, new HashChangeEvent('hashchange'))
   expect(nav.container.querySelector('video.landing-bg-video')).not.toBeNull()
 })
+
+test('mic button stays clickable after media upload via browser SpeechRecognition fallback when local ASR unavailable', async () => {
+  class MockSpeechRecognition {
+    lang = 'en-IN'
+    interimResults = false
+    continuous = false
+    onresult: ((e: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean; length: number }> }) => void) | null = null
+    onerror: ((e: { error?: string }) => void) | null = null
+    onend: (() => void) | null = null
+    start() {}
+    stop() {
+      this.onresult?.({
+        resultIndex: 0,
+        results: [{ 0: { transcript: 'Add 20 percent offer' }, isFinal: true, length: 1 }],
+      })
+      this.onend?.()
+    }
+    abort() {}
+  }
+  vi.stubGlobal('SpeechRecognition', MockSpeechRecognition)
+
+  const fetchSpy = vi.fn(async (input: string) => {
+    const url = String(input)
+    if (url.includes('capabilities')) {
+      return {
+        ok: true,
+        json: async () => ({
+          generation: { configured: false, status: 'key_not_set', model: 'gemini-omni-1.2-flash' },
+          renderer: { available: true },
+          speech: { status: 'unavailable', error: 'Local speech model unavailable.' },
+        }),
+      }
+    }
+    if (url.endsWith('/apply')) {
+      return {
+        ok: true,
+        json: async () => ({
+          parsed_command: {
+            original_transcript: 'Add 20 percent offer',
+            operations: [{ id: 'op1', type: 'set_text_overlay', parameters: { text: '20 percent offer', placement: 'end_card' } }],
+            requires_clarification: false,
+            clarification_question: null,
+            warnings: [],
+          },
+          project: {
+            id: 'project',
+            assets: [{ id: 'a1', filename: 'photo.png', media_type: 'image' }],
+            current_output: null,
+            current_render_revision: 1,
+            undo_stack: [],
+            settings: {
+              duration_seconds: 5,
+              zoom_style: 'smooth',
+              music_enabled: true,
+              music_volume: 0.2,
+              keep_clip_audio: false,
+              clip_audio_volume: 0.7,
+              fit_mode: 'contain',
+              overlay_text: '20 percent offer',
+              overlay_position: 'end_card',
+              overlay_color: 'lime',
+              brightness: 0,
+            },
+          },
+        }),
+      }
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        id: 'project',
+        assets: [{ id: 'a1', filename: 'photo.png', media_type: 'image' }],
+        current_output: null,
+        current_render_revision: 1,
+        undo_stack: [],
+        settings: {
+          duration_seconds: 5,
+          zoom_style: 'smooth',
+          music_enabled: true,
+          music_volume: 0.2,
+          keep_clip_audio: false,
+          clip_audio_volume: 0.7,
+          fit_mode: 'contain',
+          overlay_text: null,
+          overlay_position: 'end_card',
+          overlay_color: 'lime',
+          brightness: 0,
+        },
+      }),
+    }
+  })
+  vi.stubGlobal('fetch', fetchSpy)
+
+  render(<App />)
+  const micBtn = await screen.findByRole('button', { name: 'Start recording' })
+  await waitFor(() => expect(micBtn).not.toBeDisabled())
+
+  fireEvent.click(micBtn)
+  const stopBtn = await screen.findByRole('button', { name: 'Stop recording' })
+  fireEvent.click(stopBtn)
+
+  await waitFor(() =>
+    expect(fetchSpy).toHaveBeenCalledWith(
+      '/api/projects/project/apply',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ transcript: 'Add 20 percent offer' }),
+      }),
+    ),
+  )
+})
+
+test('Studio tabs omit technical filter/tool names and allow durations beyond 30s based on media', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: string) => ({
+      ok: true,
+      json: async () =>
+        String(input).includes('capabilities')
+          ? {
+              generation: { configured: false, status: 'key_not_set', model: 'gemini-omni-1.2-flash' },
+              renderer: { available: true },
+              speech: { status: 'ready', error: null },
+              cutout: { backend: 'opencv_grabcut', u2net_ready: false, chroma_key: true },
+            }
+          : {
+              id: 'project',
+              assets: [{ id: 'v1', filename: 'long.mp4', media_type: 'video', duration_seconds: 45 }],
+              current_output: null,
+              current_render_revision: 1,
+              undo_stack: [],
+              settings: {
+                duration_seconds: 45,
+                zoom_style: 'smooth',
+                music_enabled: true,
+                music_volume: 0.2,
+                keep_clip_audio: true,
+                clip_audio_volume: 0.7,
+                fit_mode: 'contain',
+                overlay_text: null,
+                overlay_position: 'end_card',
+                overlay_color: 'lime',
+                brightness: 0,
+              },
+            },
+    })),
+  )
+
+  render(<App />)
+  await waitFor(() => expect(screen.getAllByText(/00:45\.0/).length).toBeGreaterThan(0))
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Audio' }))
+  expect(screen.getByText('Noise reduction')).toBeInTheDocument()
+  expect(screen.queryByText(/FFmpeg/i)).not.toBeInTheDocument()
+  expect(screen.queryByText(/LUFS/i)).not.toBeInTheDocument()
+  expect(screen.queryByText(/compressor/i)).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'FX' }))
+  expect(screen.getByText('Video stabilize')).toBeInTheDocument()
+  expect(screen.queryByText(/opencv_grabcut/i)).not.toBeInTheDocument()
+  expect(screen.queryByText(/deshake/i)).not.toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('tab', { name: 'Look' }))
+  const durNumber = screen.getByLabelText('Reel duration seconds') as HTMLInputElement
+  expect(durNumber.value).toBe('45')
+})

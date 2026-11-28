@@ -149,7 +149,7 @@ def capabilities():
             "media_items": 5,
             "image_mb": 15,
             "video_mb": 100,
-            "video_seconds": 120,
+            "video_seconds": 3600,
             "voice_seconds": 30,
             "voice_mb": 20,
             "project_mb": 500,
@@ -232,11 +232,11 @@ async def upload_asset(project_id: str, file: UploadFile = File(...)):
                 video = next(s for s in info["streams"] if s["codec_type"] == "video")
                 asset.width, asset.height = video["width"], video["height"]
                 asset.duration_seconds = float(info["format"]["duration"])
-                if not 0 < asset.duration_seconds <= 120 or asset.width * asset.height > 8_500_000:
+                if not 0 < asset.duration_seconds <= 3600 or asset.width * asset.height > 8_500_000:
                     raise ValueError("Video too large")
                 has_video_audio = any(s.get("codec_type") == "audio" for s in info.get("streams", []))
             except (RuntimeError, KeyError, ValueError, StopIteration):
-                raise HTTPException(422, "Use a valid video up to 120 seconds and 4K resolution") from None
+                raise HTTPException(422, "Use a valid video up to 4K resolution") from None
         else:
             try:
                 info = await asyncio.to_thread(media.probe, path)
@@ -252,6 +252,8 @@ async def upload_asset(project_id: str, file: UploadFile = File(...)):
             project.undo_stack = (project.undo_stack + [_snapshot(project)])[-10:]
             project.redo_stack.clear()
         project.assets.append(asset)
+        if not any(op.type == "set_duration" for op in project.edit_history):
+            project.settings.duration_seconds = _media_duration_seconds(project.assets, project.settings.duration_seconds)
         if is_video and locals().get("has_video_audio") and not any(op.type == "set_clip_audio" for op in project.edit_history):
             project.settings.keep_clip_audio = True
         storage.save(project)
@@ -288,6 +290,10 @@ async def delete_asset(project_id: str, asset_id: str):
         project.assets.remove(asset)
         if _media_count(project) == 0:
             project.current_output = None
+            if not any(op.type == "set_duration" for op in project.edit_history):
+                project.settings.duration_seconds = 15.0
+        elif not any(op.type == "set_duration" for op in project.edit_history):
+            project.settings.duration_seconds = _media_duration_seconds(project.assets, project.settings.duration_seconds)
         if not still_referenced:
             (storage.project_dir(project_id) / asset.path).unlink(missing_ok=True)
         storage.save(project)
@@ -356,9 +362,33 @@ def _parser_context(project: ProjectState) -> dict:
     }
 
 
+def _media_duration_seconds(assets: list[Asset], fallback: float = 15.0) -> float:
+    """Compute total reel duration naturally from the user's uploaded media clips."""
+    total = 0.0
+    has_media = False
+    for a in assets:
+        if a.media_type not in {"image", "video"}:
+            continue
+        has_media = True
+        speed = max(0.25, float(getattr(a, "speed", 1.0) or 1.0))
+        if a.media_type == "video":
+            start = float(getattr(a, "trim_start", 0.0) or 0.0)
+            raw_end = a.trim_end if a.trim_end is not None else (a.duration_seconds or 5.0)
+            dur = max(0.2, float(raw_end) - start)
+        else:
+            dur = 5.0
+        total += dur / speed
+    if not has_media:
+        return fallback
+    return round(max(1.0, total), 2)
+
+
 def apply_operations(project: ProjectState, operations: list[EditOperation]) -> tuple[ReelSettings, list[Asset]]:
     values = project.settings.model_dump()
     new_assets = [a.model_copy(deep=True) for a in project.assets]
+    explicit_duration_in_batch = any(op.type in {"create_reel", "set_duration"} for op in operations)
+    has_manual_duration = any(op.type == "set_duration" for op in project.edit_history)
+    clip_timing_changed = False
     for op in operations:
         p = op.parameters
         if op.type in {"create_reel", "set_duration"}:
@@ -566,6 +596,10 @@ def apply_operations(project: ProjectState, operations: list[EditOperation]) -> 
                 raise HTTPException(422, "Trim range must leave at least 0.2 seconds of video.")
             target.trim_start = round(new_start, 2)
             target.trim_end = round(effective_end, 2) if new_end is not None else None
+            clip_timing_changed = True
+    if (clip_timing_changed or any(op.type in {"split_clip", "set_clip_speed"} for op in operations)) and not explicit_duration_in_batch and not has_manual_duration:
+        if any(a.media_type in {"image", "video"} for a in new_assets):
+            values["duration_seconds"] = _media_duration_seconds(new_assets, float(values.get("duration_seconds", 15.0)))
     return ReelSettings.model_validate(values), new_assets
 
 

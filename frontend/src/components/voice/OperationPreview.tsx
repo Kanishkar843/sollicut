@@ -13,7 +13,7 @@ type OperationPreviewProps = {
   edited?: boolean
 }
 
-export function OperationPreview({ operations, matchedSources, edited = false }: OperationPreviewProps) {
+export function OperationPreview({ operations, matchedSources: _matchedSources, edited = false }: OperationPreviewProps) {
   if (edited) {
     return (
       <div className="operation-preview operation-preview--edited" role="status">
@@ -34,16 +34,12 @@ export function OperationPreview({ operations, matchedSources, edited = false }:
 
   return (
     <div className="operation-preview" role="list" aria-label="Proposed edits">
-      {operations.map((op) => {
-        const source = matchedSources?.[op.type]
-        return (
-          <div key={op.id} className="operation-preview__item" role="listitem">
-            <Check size={13} aria-hidden="true" />
-            <span className="operation-preview__label">{operationLabel(op)}</span>
-            {source && <span className="operation-preview__source">{source}</span>}
-          </div>
-        )
-      })}
+      {operations.map((op) => (
+        <div key={op.id} className="operation-preview__item" role="listitem">
+          <Check size={13} aria-hidden="true" />
+          <span className="operation-preview__label">{operationLabel(op)}</span>
+        </div>
+      ))}
     </div>
   )
 }

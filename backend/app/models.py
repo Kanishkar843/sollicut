@@ -96,7 +96,7 @@ class Asset(StrictModel):
 
 
 class ReelSettings(StrictModel):
-    duration_seconds: float = Field(default=15, ge=3, le=30)
+    duration_seconds: float = Field(default=15, ge=1)
     aspect_ratio: AspectRatio = "9:16"
     width: int = Field(default=720, ge=360, le=1920)
     height: int = Field(default=1280, ge=360, le=1920)
@@ -212,7 +212,7 @@ class GenerateRequest(StrictModel):
 
 
 class VisualEditRequest(StrictModel):
-    duration_seconds: float | None = Field(default=None, ge=3, le=30)
+    duration_seconds: float | None = Field(default=None, ge=1)
     aspect_ratio: AspectRatio | None = None
     zoom_style: Literal["none", "smooth"] | None = None
     music_enabled: bool | None = None

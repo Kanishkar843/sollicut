@@ -19,7 +19,7 @@ export default function GeneratePanel({ project, caps, busy, languageHint = '', 
   const [error, setError] = useState('')
 
   const configured = Boolean(caps?.generation?.configured)
-  const modelName = caps?.generation?.model ?? 'gemini-omni-1.2-flash'
+  const speechReady = caps?.speech.status === 'ready'
   const mediaCount = project.assets.filter((a) => a.media_type !== 'audio').length
   const photos = project.assets.filter((a) => a.media_type === 'image')
   const maxDuration = refs.length >= 2 ? 10 : 15
@@ -83,18 +83,24 @@ export default function GeneratePanel({ project, caps, busy, languageHint = '', 
         </div>
         <span className={`key-badge ${configured ? 'ready' : 'missing'}`}>
           <KeyRound size={12} />
-          {configured ? `Configured · ${modelName}` : 'Key not set'}
+          {configured ? 'Configured' : 'Key not set'}
         </span>
       </div>
       <p className="gen-desc">
-        Record an ad idea, review or edit the prompt below, and optionally send it to Gemini ({modelName}). Ordinary voice and timeline editing needs no API key.
+        Record an ad idea, review or edit the prompt below, and optionally send it to Gemini. Ordinary voice and timeline editing needs no API key.
       </p>
       {!configured && (
         <div className="notice">
-          <strong>Key not set:</strong> Set <code>GEMINI_API_KEY</code> on the server to enable cloud video generation. Core editing stays keyless.
+          <strong>Key not set:</strong> Set an API key on the server to enable cloud video generation. Core editing stays keyless.
         </div>
       )}
-      <VoiceButton disabled={disabled || caps?.speech.status !== 'ready'} onAudio={(b, e) => void record(b, e)} onError={setError} />
+      <VoiceButton
+        disabled={disabled}
+        preferBrowserSpeech={!speechReady}
+        onBrowserTranscript={(text) => setPrompt(text)}
+        onAudio={(b, e) => void record(b, e)}
+        onError={setError}
+      />
       <label className="field-label" htmlFor="gen-prompt-input">
         Spoken prompt (review before sending)
       </label>

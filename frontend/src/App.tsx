@@ -40,12 +40,14 @@ import Timeline from './Timeline'
 import VoiceButton from './VoiceButton'
 import { TranscriptReview } from './components/voice/TranscriptReview'
 import { MicrophoneSettings } from './components/voice/MicrophoneSettings'
+import { hasBrowserSpeechRecognition } from './hooks/useRecorder'
 import { useTheme } from './theme'
 import {
   api,
   operationLabel,
   type AspectRatio,
   type AsrMode,
+  type Asset,
   type AssetsCatalog,
   type Capabilities,
   type Command,
@@ -111,6 +113,22 @@ function formatTime(sec: number): string {
   const mins = Math.floor(s / 60)
   const rem = (s % 60).toFixed(1).padStart(4, '0')
   return `${String(mins).padStart(2, '0')}:${rem}`
+}
+
+function computeMediaDuration(assets: Asset[]): number {
+  if (assets.length === 0) return 0
+  let sum = 0
+  for (const a of assets) {
+    const spd = Math.max(0.25, a.speed ?? 1)
+    if (a.media_type === 'video') {
+      const end = a.trim_end ?? a.duration_seconds ?? 5
+      const start = a.trim_start ?? 0
+      sum += Math.max(0.2, end - start) / spd
+    } else if (a.media_type === 'image') {
+      sum += 5 / spd
+    }
+  }
+  return Math.round(Math.max(1, sum) * 100) / 100
 }
 
 export default function App() {
@@ -248,7 +266,9 @@ export default function App() {
     setOverlayAnimDraft(activeLayer?.animation ?? 'none')
 
     setAspectRatioDraft((s?.aspect_ratio as AspectRatio | undefined) ?? '9:16')
-    setDurationDraft(s?.duration_seconds ?? 15)
+    const hasMedia = project.assets.some((a) => a.media_type !== 'audio')
+    const naturalDur = computeMediaDuration(project.assets.filter((a) => a.media_type !== 'audio'))
+    setDurationDraft(s?.duration_seconds ?? (hasMedia ? naturalDur : 5))
     setZoomDraft(s?.zoom_style ?? 'smooth')
     setBrightnessDraft(s?.brightness ?? 0)
     setFitDraft(s?.fit_mode ?? 'contain')
@@ -502,10 +522,9 @@ export default function App() {
     }
   }
 
-  async function applyTypedCommand(e: React.FormEvent) {
-    e.preventDefault()
+  async function runTranscriptCommand(transcript: string, clearManual = false) {
     const pid = projectIdRef.current
-    const cmd = manualCommand.trim()
+    const cmd = transcript.trim()
     if (!pid || !cmd || busy) return
     setBusy(true)
     setError('')
@@ -517,13 +536,18 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ transcript: cmd }),
       })
-      setManualCommand('')
+      if (clearManual) setManualCommand('')
       handleCommandResult(result)
     } catch (err) {
       setError((err as Error).message)
       setBusy(false)
       setStage('Ready')
     }
+  }
+
+  async function applyTypedCommand(e: React.FormEvent) {
+    e.preventDefault()
+    await runTranscriptCommand(manualCommand, true)
   }
 
   async function applyVisualEdit(payload: Record<string, unknown>, stageLabel = 'Applying studio edit') {
@@ -784,7 +808,7 @@ export default function App() {
   function seekTo(seconds: number) {
     const el = videoRef.current
     if (!el) return
-    const limit = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : (project?.settings?.duration_seconds ?? 15)
+    const limit = Number.isFinite(el.duration) && el.duration > 0 ? el.duration : totalDur
     const clamped = Math.max(0, Math.min(limit, seconds))
     el.currentTime = clamped
     setCurrentTime(clamped)
@@ -833,12 +857,15 @@ export default function App() {
     setPreviewingAudioId(audioId)
   }
 
-  const totalDur = project?.settings?.duration_seconds ?? 15
+  const mediaBasedDur = computeMediaDuration(mediaAssets)
+  const totalDur = mediaAssets.length === 0 ? 0 : (project?.settings?.duration_seconds ?? mediaBasedDur)
+  const durationSliderMax = Math.max(60, Math.ceil(Math.max(durationDraft, mediaBasedDur) * 2))
   const previewClipVideo = !project?.current_output && selectedClip?.media_type === 'video' ? selectedClip : null
   const hasPreviewVideo = Boolean(project?.current_output || previewClipVideo)
   const previewTotalDur = project?.current_output ? totalDur : (previewClipVideo?.duration_seconds ?? totalDur)
   const audioAsset = project?.assets.find((a) => a.media_type === 'audio')
   const speechReady = caps?.speech.status === 'ready'
+  const browserSpeechReady = hasBrowserSpeechRecognition()
   const aspectChoices = Array.isArray(catalog?.aspect_ratios) && catalog.aspect_ratios.length > 0 ? catalog.aspect_ratios : ASPECT_RATIO_OPTIONS
   const currentAspectRatio = ((project?.settings?.aspect_ratio as AspectRatio | undefined) ?? aspectRatioDraft ?? '9:16') as AspectRatio
   const activeAspectInfo = aspectChoices.find((a) => a.id === currentAspectRatio) ?? ASPECT_RATIO_OPTIONS[0]
@@ -881,9 +908,9 @@ export default function App() {
           </span>
           <span>{totalDur}s</span>
           <span>{mediaAssets.length}/5 media</span>
-          <span className={`speech-pill ${speechReady ? 'ok' : ''}`}>
+          <span className={`speech-pill ${speechReady || browserSpeechReady ? 'ok' : ''}`}>
             <i />
-            {speechReady ? 'Local ASR ready' : caps?.speech.status === 'loading' ? 'Loading ASR…' : 'ASR unavailable'}
+            {speechReady || browserSpeechReady ? 'Voice ready' : caps?.speech.status === 'loading' ? 'Loading voice…' : 'Type commands'}
           </span>
         </div>
 
@@ -1201,12 +1228,14 @@ export default function App() {
                 </div>
 
                 <VoiceButton
-                  disabled={busy || mediaAssets.length < 1 || !speechReady}
+                  disabled={busy || mediaAssets.length < 1}
                   projectId={project?.id}
                   mode={asrMode}
                   previewOnly={true}
                   resampler={caps?.voice_profile?.resampler ?? 'fir_kaiser'}
                   deviceId={micDeviceId}
+                  preferBrowserSpeech={!speechReady}
+                  onBrowserTranscript={(transcript) => void runTranscriptCommand(transcript)}
                   onModeChange={setAsrMode}
                   onProcessing={() => {
                     setBusy(true)
@@ -1221,6 +1250,9 @@ export default function App() {
                     setError(msg)
                     setBusy(false)
                     setStage('Ready')
+                    if (!speechReady && !browserSpeechReady) {
+                      manualCmdInputRef.current?.focus()
+                    }
                   }}
                 />
 
@@ -1250,8 +1282,12 @@ export default function App() {
                   {mediaAssets.length < 1 && !busy ? ' · Add a photo or clip to begin' : ''}
                 </div>
 
-                {caps && caps.speech.status !== 'ready' && (
-                  <div className="notice">{caps.speech.status === 'loading' ? 'Loading the local speech model…' : caps.speech.error}</div>
+                {caps && caps.speech.status !== 'ready' && !browserSpeechReady && (
+                  <div className="notice">
+                    {caps.speech.status === 'loading'
+                      ? 'Loading speech recognition…'
+                      : 'Use Chrome/Edge to speak, or type your command below.'}
+                  </div>
                 )}
                 {caps && !caps.renderer.available && (
                   <div className="notice">The media renderer is unavailable. Check the server setup before creating a reel.</div>
@@ -1490,7 +1526,7 @@ export default function App() {
                       <div className="subpanel-divider" />
 
                       <div className="layer-header">
-                        <span className="field-label">Auto-Captions (Local ASR)</span>
+                        <span className="field-label">Auto-Captions</span>
                         <button type="button" className="quiet" disabled={busy || !speechReady || mediaAssets.length < 1} onClick={() => void runAutoCaptions()}>
                           Auto-captions
                         </button>
@@ -1527,7 +1563,7 @@ export default function App() {
 
                       <div className="subpanel-divider" />
 
-                      <span className="field-label">Offline TTS Narration ({caps?.tts?.backend ?? 'local'})</span>
+                      <span className="field-label">Voiceover Narration</span>
                       <div className="caption-item">
                         <input
                           type="text"
@@ -1593,7 +1629,7 @@ export default function App() {
                       </div>
                       {soothingPacks.length > 0 && (
                         <div className="control-group">
-                          <span className="field-label">Inbuilt soothing music ({soothingPacks.filter((p) => p.category === 'Soothing').length} CC0 tracks)</span>
+                          <span className="field-label">Inbuilt soothing music ({soothingPacks.filter((p) => p.category === 'Soothing').length} tracks)</span>
                           <div className="caption-item">
                             <select
                               className="compact-select inbuilt-select"
@@ -1652,21 +1688,18 @@ export default function App() {
                       <div className="toggle-row">
                         <div>
                           <strong>Noise reduction</strong>
-                          <span>FFmpeg FFT denoise filter</span>
                         </div>
                         <input type="checkbox" aria-label="Noise reduction" checked={denoiseDraft} disabled={busy} onChange={(e) => setDenoiseDraft(e.target.checked)} />
                       </div>
                       <div className="toggle-row">
                         <div>
                           <strong>Loudness normalize</strong>
-                          <span>EBU R128 (-16 LUFS) auto-gain</span>
                         </div>
                         <input type="checkbox" aria-label="Loudness normalize" checked={normalizeDraft} disabled={busy} onChange={(e) => setNormalizeDraft(e.target.checked)} />
                       </div>
                       <div className="toggle-row">
                         <div>
                           <strong>Voice enhance</strong>
-                          <span>Speech presence EQ + compressor</span>
                         </div>
                         <input type="checkbox" aria-label="Voice enhance" checked={voiceEnhanceDraft} disabled={busy} onChange={(e) => setVoiceEnhanceDraft(e.target.checked)} />
                       </div>
@@ -1743,15 +1776,45 @@ export default function App() {
                         </div>
                       </div>
                       <div className="control-group">
-                        <label className="field-label" htmlFor="reel-dur">
-                          Reel duration: {durationDraft}s
-                        </label>
-                        <input id="reel-dur" type="range" min={3} max={30} step={1} value={durationDraft} disabled={busy} onChange={(e) => setDurationDraft(Number(e.target.value))} />
+                        <div className="layer-header">
+                          <label className="field-label" htmlFor="reel-dur">
+                            Reel duration: {durationDraft}s
+                          </label>
+                          {mediaAssets.length > 0 && (
+                            <button type="button" className="text-button" disabled={busy} onClick={() => setDurationDraft(mediaBasedDur)}>
+                              Match media ({mediaBasedDur}s)
+                            </button>
+                          )}
+                        </div>
+                        <div className="caption-item">
+                          <input
+                            id="reel-dur"
+                            className="flex-1"
+                            type="range"
+                            min={1}
+                            max={durationSliderMax}
+                            step={1}
+                            value={Math.min(durationSliderMax, Math.max(1, durationDraft))}
+                            disabled={busy}
+                            onChange={(e) => setDurationDraft(Number(e.target.value))}
+                          />
+                          <input
+                            type="number"
+                            aria-label="Reel duration seconds"
+                            min={1}
+                            step={1}
+                            className="compact-select"
+                            style={{ width: 68 }}
+                            value={durationDraft}
+                            disabled={busy}
+                            onChange={(e) => setDurationDraft(Math.max(1, Number(e.target.value) || 1))}
+                          />
+                        </div>
                       </div>
                       <div className="toggle-row">
                         <div>
                           <strong>Smooth photo zoom</strong>
-                          <span>Gentle Ken Burns motion on still photos</span>
+                          <span>Gentle zoom motion on still photos</span>
                         </div>
                         <input type="checkbox" aria-label="Smooth photo zoom" checked={zoomDraft === 'smooth'} disabled={busy} onChange={(e) => setZoomDraft(e.target.checked ? 'smooth' : 'none')} />
                       </div>
@@ -2009,7 +2072,7 @@ export default function App() {
                         <>
                           <div className="selected-clip-summary">
                             <strong>{selectedClip.filename}</strong>
-                            <span>Cutout: {caps?.cutout?.backend ?? 'opencv_grabcut'}</span>
+                            <span>{selectedClip.media_type === 'video' ? 'Video clip' : 'Photo clip'}</span>
                           </div>
                           <div className="control-group">
                             <span className="field-label">Background Cutout / Chroma Key</span>
@@ -2039,7 +2102,6 @@ export default function App() {
                             <div className="toggle-row">
                               <div>
                                 <strong>Video stabilize</strong>
-                                <span>FFmpeg deshake motion smoothing</span>
                               </div>
                               <input type="checkbox" aria-label="Video stabilize" checked={stabilizeDraft} disabled={busy} onChange={(e) => setStabilizeDraft(e.target.checked)} />
                             </div>
@@ -2164,13 +2226,13 @@ export default function App() {
                       </div>
 
                       <div className="subpanel-divider" />
-                      <span className="field-label">Inbuilt Soothing Music &amp; SFX (CC0 / Local)</span>
+                      <span className="field-label">Inbuilt Music &amp; Sound Effects</span>
                       <div className="catalog-list">
                         {catalogAudioPacks.map((pack) => (
                           <div key={pack.id} className="catalog-card">
                             <div>
                               <strong>{pack.name}</strong>
-                              <span>{pack.category} · {pack.duration_seconds}s · {pack.license}</span>
+                              <span>{pack.category} · {pack.duration_seconds}s</span>
                             </div>
                             <div className="catalog-actions">
                               <button

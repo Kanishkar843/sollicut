@@ -45,14 +45,15 @@ export default function Timeline({
   onSeek,
 }: Props) {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
-  const total = project.settings?.duration_seconds ?? 15
+  const total = mediaAssets.length === 0 ? 0 : (project.settings?.duration_seconds ?? 5)
+  const safeTotal = total > 0 ? total : 1
   const zoomStyle = project.settings?.zoom_style ?? 'smooth'
   const musicEnabled = project.settings?.music_enabled ?? true
   const musicVolume = project.settings?.music_volume ?? 0.2
   const keepClipAudio = project.settings?.keep_clip_audio ?? false
   const transitionStyle = project.settings?.transition_style ?? 'none'
   const filterPreset = project.settings?.filter_preset ?? 'none'
-  const playheadPct = Math.min(100, Math.max(0, (currentTime / total) * 100))
+  const playheadPct = total > 0 ? Math.min(100, Math.max(0, (currentTime / safeTotal) * 100)) : 0
 
   const allLayers: TextLayer[] = project.settings?.text_layers?.length
     ? project.settings.text_layers
@@ -85,8 +86,8 @@ export default function Timeline({
   function layerSpanPct(layer: TextLayer): { left: number; width: number } {
     if (layer.start_time != null || layer.end_time != null) {
       const s = Math.max(0, layer.start_time ?? 0)
-      const e = Math.min(total, layer.end_time ?? total)
-      return { left: (s / total) * 100, width: Math.max(10, ((e - s) / total) * 100) }
+      const e = Math.min(safeTotal, layer.end_time ?? safeTotal)
+      return { left: (s / safeTotal) * 100, width: Math.max(10, ((e - s) / safeTotal) * 100) }
     }
     if (layer.clip_index != null && mediaAssets.length > 0) {
       const idx = Math.min(mediaAssets.length - 1, Math.max(0, layer.clip_index - 1))
@@ -94,8 +95,8 @@ export default function Timeline({
       return { left: idx * w, width: w }
     }
     if (layer.position === 'end_card' && !layer.is_caption) {
-      const endCardStart = Math.max(0, total - 4)
-      return { left: (endCardStart / total) * 100, width: ((total - endCardStart) / total) * 100 }
+      const endCardStart = Math.max(0, safeTotal - 4)
+      return { left: (endCardStart / safeTotal) * 100, width: ((safeTotal - endCardStart) / safeTotal) * 100 }
     }
     return { left: 0, width: 100 }
   }
@@ -202,8 +203,8 @@ export default function Timeline({
             onClick={handleRulerClick}
             title={project.current_output ? 'Click anywhere to seek preview' : 'Render a reel to scrub preview'}
           >
-            {ticks.map((tick) => (
-              <span key={tick}>{fmt(tick)}</span>
+            {ticks.map((tick, idx) => (
+              <span key={idx}>{fmt(tick)}</span>
             ))}
           </div>
 

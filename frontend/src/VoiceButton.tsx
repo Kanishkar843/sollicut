@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Mic, Square } from 'lucide-react'
 import { type AsrMode, type Command } from './api'
-import { microphoneError, useRecorder, type RecorderState } from './hooks/useRecorder'
+import { microphoneError, useRecorder, hasBrowserSpeechRecognition, type RecorderState } from './hooks/useRecorder'
 
 export { microphoneError }
 
@@ -45,6 +45,8 @@ type VoiceButtonProps = {
   previewOnly?: boolean
   resampler?: 'linear' | 'fir_kaiser'
   deviceId?: string
+  preferBrowserSpeech?: boolean
+  onBrowserTranscript?: (transcript: string) => void
   onModeChange?: (mode: AsrMode) => void
   onStreamResult?: (command: Command) => void
   onProcessing?: () => void
@@ -60,6 +62,8 @@ export default function VoiceButton({
   previewOnly = false,
   resampler = 'fir_kaiser',
   deviceId,
+  preferBrowserSpeech = false,
+  onBrowserTranscript,
   onModeChange,
   onStreamResult,
   onProcessing,
@@ -86,6 +90,8 @@ export default function VoiceButton({
         previewOnly,
         resampler,
         deviceId,
+        preferBrowserSpeech,
+        onBrowserTranscript,
         onStreamResult,
         onProcessing,
         onAudio,
@@ -97,7 +103,12 @@ export default function VoiceButton({
   const isActive = recording || recorderState === 'stopping' || recorderState === 'flushing'
   const isBusy = recorderState === 'processing' || recorderState === 'initializing'
   const label = STATE_LABEL[recorderState]
-  const hint = STATE_HINT[recorderState]
+  const hint =
+    recorderState === 'idle' && preferBrowserSpeech
+      ? hasBrowserSpeechRecognition()
+        ? 'Tamil, Tanglish or English · Browser voice ready'
+        : 'Type your command below or use Chrome/Edge mic'
+      : STATE_HINT[recorderState]
 
   return (
     <div className="voice-control-wrap">

@@ -81,17 +81,9 @@ export function TranscriptReview({ result, onApply, onCancel, applying = false }
 
       {!isEdited && result.secondary_transcript && (
         <details className="secondary-transcript">
-          <summary>Dual-ASR Tamil pass</summary>
+          <summary>Tamil transcript</summary>
           <span>{result.secondary_transcript}</span>
         </details>
-      )}
-
-      {result.engines_used && result.engines_used.length > 0 && (
-        <div className="transcript-review__engines">
-          {result.engines_used.map((e) => (
-            <span key={e} className="engine-badge">{e}</span>
-          ))}
-        </div>
       )}
 
       {hasClarification ? (

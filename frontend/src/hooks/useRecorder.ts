@@ -21,12 +21,41 @@ export type RecorderState =
   | 'failed'
   | 'cancelled'
 
+type SpeechRecognitionAlternativeLike = { transcript: string }
+type SpeechRecognitionResultLike = { 0: SpeechRecognitionAlternativeLike; isFinal: boolean; length: number }
+type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> }
+type SpeechRecognitionInstanceLike = {
+  lang: string
+  interimResults: boolean
+  continuous: boolean
+  onresult: ((e: SpeechRecognitionEventLike) => void) | null
+  onerror: ((e: { error?: string }) => void) | null
+  onend: (() => void) | null
+  start: () => void
+  stop: () => void
+  abort?: () => void
+}
+type SpeechRecognitionCtorLike = new () => SpeechRecognitionInstanceLike
+
+function getSpeechRecognitionCtor(): SpeechRecognitionCtorLike | null {
+  if (typeof window === 'undefined') return null
+  const w = window as unknown as Record<string, unknown>
+  const ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition
+  return typeof ctor === 'function' ? (ctor as SpeechRecognitionCtorLike) : null
+}
+
+export function hasBrowserSpeechRecognition(): boolean {
+  return getSpeechRecognitionCtor() !== null
+}
+
 type StartOptions = {
   projectId?: string
   mode: AsrMode
   previewOnly?: boolean
   resampler?: 'linear' | 'fir_kaiser'
   deviceId?: string
+  preferBrowserSpeech?: boolean
+  onBrowserTranscript?: (transcript: string) => void
   onStreamResult?: (command: Command) => void
   onProcessing?: () => void
   onAudio: (blob: Blob, extension: string) => void
@@ -51,6 +80,7 @@ export function useRecorder() {
   const audioCtxRef = useRef<AudioContext | null>(null)
   const workletRef = useRef<AudioWorkletNode | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionInstanceLike | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const stoppingRef = useRef(false)
   const stopActionRef = useRef<(() => void) | null>(null)
@@ -60,6 +90,12 @@ export function useRecorder() {
       clearInterval(timerRef.current)
       timerRef.current = null
     }
+    try {
+      recognitionRef.current?.abort?.()
+    } catch {
+      // ignore
+    }
+    recognitionRef.current = null
     try {
       workletRef.current?.disconnect()
     } catch {
@@ -157,9 +193,107 @@ export function useRecorder() {
     }, 200)
   }
 
+  function startBrowserRecognition(opts: StartOptions): boolean {
+    const Ctor = getSpeechRecognitionCtor()
+    if (!Ctor) return false
+    try {
+      const rec = new Ctor()
+      rec.lang = opts.mode === 'ta' ? 'ta-IN' : 'en-IN'
+      rec.interimResults = true
+      rec.continuous = true
+      let finalText = ''
+      let latestText = ''
+      let errored = false
+
+      rec.onresult = (ev) => {
+        let interim = ''
+        for (let i = ev.resultIndex; i < ev.results.length; i += 1) {
+          const item = ev.results[i]
+          const chunk = item[0]?.transcript ?? ''
+          if (item.isFinal) {
+            finalText = `${finalText} ${chunk}`.trim()
+          } else {
+            interim = `${interim} ${chunk}`.trim()
+          }
+        }
+        latestText = `${finalText} ${interim}`.trim()
+      }
+
+      rec.onerror = (ev) => {
+        if (ev?.error === 'aborted') return
+        errored = true
+        cleanupAudio()
+        if (!alive.current) return
+        setRecorderState('failed')
+        if (ev?.error === 'not-allowed' || ev?.error === 'service-not-allowed') {
+          opts.onError('Microphone permission was denied. Allow microphone access in your browser and try again.')
+        } else if (ev?.error === 'no-speech') {
+          opts.onError('No speech detected. Speak clearly and try again.')
+        } else if (ev?.error === 'network') {
+          opts.onError('Browser voice recognition needs an internet connection. Type your command below instead.')
+        } else {
+          opts.onError('Voice recognition could not hear you. Speak again or type your command below.')
+        }
+      }
+
+      rec.onend = () => {
+        if (timerRef.current) {
+          clearInterval(timerRef.current)
+          timerRef.current = null
+        }
+        recognitionRef.current = null
+        if (!alive.current || errored) return
+        const spoken = (finalText || latestText).trim()
+        if (!spoken) {
+          setRecorderState('failed')
+          opts.onError('No speech detected. Tap the mic and speak clearly, or type your command below.')
+          return
+        }
+        setRecorderState('completed')
+        opts.onBrowserTranscript?.(spoken)
+      }
+
+      recognitionRef.current = rec
+      stopActionRef.current = () => {
+        setRecorderState('stopping')
+        try {
+          rec.stop()
+        } catch {
+          cleanupAudio()
+        }
+      }
+
+      setRecorderState('recording')
+      setSeconds(0)
+      const began = Date.now()
+      timerRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - began) / 1000)
+        setSeconds(elapsed)
+        if (elapsed >= MAX_RECORD_SECONDS - 1) {
+          try {
+            rec.stop()
+          } catch {
+            // ignore
+          }
+        }
+      }, 200)
+      rec.start()
+      return true
+    } catch {
+      recognitionRef.current = null
+      return false
+    }
+  }
+
   async function start(opts: StartOptions) {
-    const { projectId, mode, previewOnly = false, resampler = 'fir_kaiser', deviceId, onStreamResult, onProcessing, onAudio, onError } = opts
+    const { projectId, mode, previewOnly = false, resampler = 'fir_kaiser', deviceId, preferBrowserSpeech = false, onBrowserTranscript, onStreamResult, onProcessing, onAudio, onError } = opts
     stoppingRef.current = false
+    if (preferBrowserSpeech) {
+      if (startBrowserRecognition(opts)) return
+      setRecorderState('failed')
+      onError('Speech recognition is not available in this browser. Type your command below or use Chrome/Edge.')
+      return
+    }
     setRecorderState('initializing')
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
